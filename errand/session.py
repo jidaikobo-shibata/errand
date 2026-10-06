@@ -252,10 +252,18 @@ class Session:
                     self._interrupt(generation)
         except Exception as error:
             if self._current(generation):
+                with self._lock:
+                    failed, self._server = self._server, None
+                    self._thread_id = self._turn_id = None
+                    self._requests.clear()
+                    self._items.clear()
+                    self._generation += 1
+                if failed:
+                    failed.close()
                 self._busy = False
-                self._turn_id = None
+                self._emit("requests_clear")
                 self._emit("error", message=str(error))
-                self._emit("state", busy=False, message="エラー。新しいお願いで再接続できます。")
+                self._emit("state", busy=False, message="接続を破棄しました。次の送信で新しい会話として再接続します。")
 
     def _event(self, generation, message):
         if not self._current(generation):
@@ -362,14 +370,26 @@ class Session:
             self._pool.submit(old.close)
         self._emit("reset")
 
-    def close(self):
-        self._closed = True
-        self._generation += 1
-        server, self._server = self._server, None
-        if server:
-            server.close()
-        if self._catalogue_server:
-            self._catalogue_server.close()
-        self._pool.shutdown(wait=False, cancel_futures=True)
-        # TemporaryDirectory contains no user data; writes are disabled in answer-only mode.
-        self._scratch.cleanup()
+    def close(self, wait=True):
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._generation += 1
+            server, self._server = self._server, None
+            catalogue, self._catalogue_server = self._catalogue_server, None
+        def cleanup():
+            try:
+                if server:
+                    server.close()
+                if catalogue:
+                    catalogue.close()
+            finally:
+                self._scratch.cleanup()
+        if wait:
+            cleanup()
+        else:
+            # Executor workers keep the process alive until cleanup completes,
+            # while GTK can continue handling other tabs and redraws.
+            self._pool.submit(cleanup)
+        self._pool.shutdown(wait=False, cancel_futures=wait)

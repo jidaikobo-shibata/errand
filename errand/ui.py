@@ -168,7 +168,7 @@ class Conversation(Gtk.Box):
             self._scroll_idle = None
         self.model_popover.popdown()
         Gtk.StyleContext.remove_provider_for_display(self.get_display(), self.input_css)
-        self.session.close()
+        self.session.close(wait=False)
 
     def focus_input(self):
         if self.owner.current is self:

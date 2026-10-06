@@ -8,6 +8,7 @@ import shutil
 import signal
 import subprocess
 import threading
+import time
 
 
 class RpcError(RuntimeError):
@@ -59,6 +60,7 @@ class AppServer:
         self.on_disconnect = on_disconnect
         self._lock = threading.RLock()
         self._write_lock = threading.Lock()
+        self._close_lock = threading.Lock()
         self._pending = {}
         self._next_id = 0
         self._process = None
@@ -173,6 +175,10 @@ class AppServer:
                 future.set_exception(error)
 
     def close(self):
+        with self._close_lock:
+            self._close()
+
+    def _close(self):
         with self._lock:
             if self._closed:
                 return
@@ -181,26 +187,26 @@ class AppServer:
         process = self._process
         if not process:
             return
-        try:
-            process.stdin.close()
-        except OSError:
-            pass
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            self._signal_group(signal.SIGTERM)
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                self._signal_group(signal.SIGKILL)
-                process.wait()
-        # Tool processes belong to the private process group created at start.
+        # Signal the entire private group, even if its original leader exited.
         self._signal_group(signal.SIGTERM)
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            process.poll()  # Reap the leader so it does not keep the group alive.
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.02)
+        self._signal_group(signal.SIGKILL)
+        process.wait(timeout=2)
         for reader in self._readers:
             if reader is not threading.current_thread():
                 reader.join(timeout=2)
-        for stream in (process.stdout, process.stderr):
-            stream.close()
+        # Do not block on a stream lock owned by an outstanding reader.
+        for stream, reader in zip((process.stdout, process.stderr), self._readers):
+            if not reader.is_alive():
+                stream.close()
+        process.stdin.close()
 
     def _signal_group(self, sig):
         try:

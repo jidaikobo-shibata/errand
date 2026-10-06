@@ -1,0 +1,8 @@
+{
+  "uuid": "errand@jidaikobo.shibata",
+  "name": "Errand",
+  "description": "Open a small Codex conversation from the top bar.",
+  "shell-version": ["50"],
+  "settings-schema": "org.gnome.shell.extensions.errand",
+  "version": 1
+}

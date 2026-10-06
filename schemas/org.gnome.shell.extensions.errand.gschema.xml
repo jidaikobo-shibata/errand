@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.errand" path="/org/gnome/shell/extensions/errand/">
+    <key name="open-errand" type="as">
+      <default>['&lt;Super&gt;&lt;Shift&gt;e']</default>
+      <summary>Open Errand</summary>
+    </key>
+    <key name="codex-path" type="s">
+      <default>''</default>
+      <summary>Absolute path to Codex, or empty for automatic discovery</summary>
+    </key>
+  </schema>
+</schemalist>

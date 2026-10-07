@@ -415,8 +415,20 @@ def tick():
             math.set_source(r'\[\frac{1}{2}\]'+"\n"+r'\[\frac{3}{4}\]', immediate=True)
             assert len(math._parts) == 3  # math, newline, math
             assert math.get_source().endswith(r'\[\frac{3}{4}\]')
+            command = app.command
+            app.command = command + ["--signed-out"]
+            app.window.new_tab()
+            app.command = command
+            stage = 23
+        elif stage == 23:
+            if window.models_loading or "codex login" not in window.status.get_text():
+                return True
+            assert window.status.get_visible()
+            assert not window.model_entries
+            assert not window.send_button.get_sensitive()
+            assert "codex login" in window.model_status.get_text()
             assert app.window.key_controller.emit("key-pressed", Gdk.KEY_q, 0, Gdk.ModifierType.CONTROL_MASK)
-            print("PASS: GTK tabs, approvals, file drops, copy and math rendering", flush=True)
+            print("PASS: GTK tabs, approvals, file drops, math and login guidance", flush=True)
             return False
         return True
     except Exception as error:

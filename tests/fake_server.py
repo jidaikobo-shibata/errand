@@ -28,6 +28,9 @@ for line in sys.stdin:
     method = message.get("method")
     if method == "initialize":
         reply(message, {"userAgent": "fake"})
+    elif method == "account/read":
+        reply(message, {"account": None if "--signed-out" in sys.argv or "--no-auth-needed" in sys.argv else {"type": "chatgpt"},
+                        "requiresOpenaiAuth": "--no-auth-needed" not in sys.argv})
     elif method == "model/list":
         if "--fail-models" in sys.argv:
             send({"id": message["id"], "error": {"code": -32000, "message": "catalogue unavailable"}})

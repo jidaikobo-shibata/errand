@@ -36,6 +36,13 @@ SUMMARY_INSTRUCTIONS = """会話の引き継ぎ用要約だけを日本語のMar
 """
 
 
+class LoginRequired(RpcError):
+    pass
+
+
+LOGIN_GUIDANCE = "Codexにログインしてください。Terminalで codex login を実行し、ログイン後にErrandを再起動してください。"
+
+
 class Session:
     """All callbacks are delivered through dispatch, usually GLib.idle_add."""
 
@@ -103,6 +110,9 @@ class Session:
                 self._catalogue_server = server
             server.start()
             self._initialize(server)
+            account = server.request("account/read", {"refreshToken": False}).result(timeout=30)
+            if account.get("requiresOpenaiAuth") is True and account.get("account") is None:
+                raise LoginRequired(LOGIN_GUIDANCE)
             # Resolve Codex's actual defaults, including profiles/new-thread rules,
             # without sending a prompt or creating a persistent conversation.
             defaults = server.request("thread/start", {
@@ -149,7 +159,7 @@ class Session:
                 self._emit("models", models=models, default_model=default_model, default_effort=default_effort)
         except Exception as error:
             if not self._closed:
-                self._emit("models_error", message=str(error))
+                self._emit("models_error", message=str(error), login_required=isinstance(error, LoginRequired))
         finally:
             if server:
                 server.close()

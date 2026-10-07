@@ -443,7 +443,11 @@ class Conversation(Gtk.Box):
                                        else "選択できるモデルがありません。新しいタブでお試しください。")
             self.update_model_controls()
         elif kind == "models_error":
-            self.model_status.set_text("モデル一覧を取得できませんでした: " + data["message"] + " 新しいタブでお試しください。")
+            if data.get("login_required"):
+                self.model_status.set_text(data["message"])
+                self.status.set_text(data["message"])
+            else:
+                self.model_status.set_text("モデル一覧を取得できませんでした: " + data["message"] + " 新しいタブでお試しください。")
         elif kind == "thread":
             self.update_model_controls()
         elif kind == "user":

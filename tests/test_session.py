@@ -108,6 +108,20 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(defaults["default_effort"], "low")
         self.assertNotEqual(defaults["default_effort"], models[0]["defaultReasoningEffort"])
 
+    def test_signed_out_catalogue_requests_login(self):
+        self.session.command.append("--signed-out")
+        self.session.load_models()
+        self.wait(lambda: any(k == "models_state" and not d["loading"] for k, d in self.events))
+        error = next(d for k, d in self.events if k == "models_error")
+        self.assertTrue(error["login_required"])
+        self.assertIn("codex login", error["message"])
+        self.assertFalse(any(k == "models" for k, _ in self.events))
+
+    def test_provider_without_openai_auth_can_load_models(self):
+        self.session.command.append("--no-auth-needed")
+        self.assertTrue(self.catalogue())
+        self.assertFalse(any(k == "models_error" for k, _ in self.events))
+
     def test_current_hidden_model_is_visible(self):
         self.session.command.append("--default-hidden")
         models = self.catalogue()

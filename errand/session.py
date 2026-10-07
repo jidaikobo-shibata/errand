@@ -348,13 +348,28 @@ class Session:
                     self._emit("error", message=f"中断に失敗しました: {error}")
 
     def _disconnected(self, generation, error):
-        if self._current(generation):
+        with self._lock:
+            if not self._current(generation):
+                return
+            old, self._server = self._server, None
+            self._generation += 1
             self._busy = False
-            self._turn_id = None
+            self._thread_id = self._turn_id = None
             self._requests.clear()
+            self._items.clear()
             self._emit("requests_clear")
             self._emit("error", message=error)
-            self._emit("state", busy=False, message="接続が終了しました。新しいお願いで再接続してください。")
+            self._emit("state", busy=False, message="接続が終了しました。次の送信で新しい会話として再接続します。")
+        if old:
+            self._background_cleanup(old.close)
+
+    @staticmethod
+    def _background_cleanup(callback):
+        # Independent of occupied communication workers; non-daemon so process
+        # exit waits for cleanup even after the GTK application has quit.
+        thread = threading.Thread(target=callback, name="errand-cleanup", daemon=False)
+        thread.start()
+        return thread
 
     def reset(self):
         if self._busy:
@@ -367,7 +382,7 @@ class Session:
             self._requests.clear()
             self._items.clear()
         if old:
-            self._pool.submit(old.close)
+            self._background_cleanup(old.close)
         self._emit("reset")
 
     def close(self, wait=True):
@@ -389,7 +404,5 @@ class Session:
         if wait:
             cleanup()
         else:
-            # Executor workers keep the process alive until cleanup completes,
-            # while GTK can continue handling other tabs and redraws.
-            self._pool.submit(cleanup)
-        self._pool.shutdown(wait=False, cancel_futures=wait)
+            self._background_cleanup(cleanup)
+        self._pool.shutdown(wait=False, cancel_futures=True)

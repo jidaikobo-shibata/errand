@@ -70,6 +70,46 @@ sys.stdin.read()
             release.set()
             self.assertTrue(finished.wait(1))
 
+    def test_cleanup_starts_while_both_communication_workers_are_busy(self):
+        release, stopped = threading.Event(), threading.Event()
+        started = [threading.Event(), threading.Event()]
+        class Server:
+            def close(self):
+                stopped.set()
+        session = Session(lambda *_: None)
+        session._server = Server()
+        for event in started:
+            session._pool.submit(lambda event=event: (event.set(), release.wait(3)))
+        try:
+            self.assertTrue(all(event.wait(1) for event in started))
+            session.close(wait=False)
+            self.assertTrue(stopped.wait(1))
+            self.assertFalse(release.is_set())
+        finally:
+            release.set()
+            session.close()
+
+    def test_first_send_after_disconnect_reconnects(self):
+        events = []
+        root = Path(__file__).resolve().parent.parent
+        session = Session(lambda kind, data: events.append((kind, data)),
+                          command=[sys.executable, str(root / "tests/fake_server.py")])
+        try:
+            session.send("exit")
+            deadline = time.monotonic() + 3
+            while not any(kind == "error" for kind, _ in events) and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertIsNone(session._server)
+            self.assertIsNone(session.thread_id)
+            events.clear()
+            session.send("first retry")
+            while session.busy and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertTrue(any(kind == "assistant" for kind, _ in events))
+            self.assertFalse(any(kind == "error" for kind, _ in events))
+        finally:
+            session.close()
+
     def test_failed_initialize_is_disposed_and_retry_starts_new_thread(self):
         servers, events = [], []
         class Server:

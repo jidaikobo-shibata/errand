@@ -4,9 +4,10 @@ from pathlib import Path
 import json
 import sys
 import time
+import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from errand.ui import Application, Gdk, GLib, Gtk
+from errand.ui import Application, Gdk, Gio, GLib, Gtk
 from errand.markdown_widget import CodeBlock, TableBlock
 
 root = Path(__file__).resolve().parent.parent
@@ -285,8 +286,75 @@ def tick():
             assert user_box.get_width() <= window.scroll.get_width()
             assert user_box.get_last_child().get_wrap_mode().value_nick == "word-char"
             assert user_box.get_last_child().get_layout().get_line_count() > 1
+            if window.models_loading or not window.model_entries:
+                return True
+            tab_checks["drop_dir"] = tempfile.TemporaryDirectory(prefix="errand-drop-test-")
+            first = Path(tab_checks["drop_dir"].name) / "報告書 one.xlsx"
+            second = Path(tab_checks["drop_dir"].name) / "資料.pdf"
+            first.write_bytes(b"fixture, not a real spreadsheet")
+            second.write_bytes(b"fixture, not a real PDF")
+            tab_checks["dropped"] = [str(first), str(second)]
+            files = Gdk.FileList.new_from_list([Gio.File.new_for_path(str(first)), Gio.File.new_for_path(str(second))])
+            assert window.file_drop.emit("drop", files, 0., 0.)
+            assert window.file_drop.emit("drop", files, 0., 0.)
+            assert list(window.attachments) == tab_checks["dropped"]
+            assert window.session.thread_id is None  # Drop alone sends nothing.
+            window.attachments[str(first)].get_last_child().emit("clicked")
+            assert list(window.attachments) == [str(second)]
+            assert window.file_drop.emit("drop", files, 0., 0.)
+            remote = Gdk.FileList.new_from_list([Gio.File.new_for_uri("https://example.com/report.xlsx")])
+            assert not window.file_drop.emit("drop", remote, 0., 0.)
+            assert len(window.attachments) == 2
+            window.send(None)  # Missing request must retain the targets.
+            assert not window.session.busy and len(window.attachments) == 2
+            other = app.window.new_tab()
+            assert not other.attachments and len(window.attachments) == 2
+            app.window.tabs.close_page(other.page)
+            app.window.tabs.set_selected_page(window.page)
+            window.input.get_buffer().set_text("対象を確認してください")
+            tab_checks["initialize"] = window.session._initialize
+            def fail_initialize(server):
+                raise RuntimeError("test connection failure")
+            window.session._initialize = fail_initialize
+            window.send(None)
+            assert len(window.attachments) == 2
+            stage = 19
+        elif stage == 19 and not window.session.busy:
+            buffer = window.input.get_buffer()
+            assert buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False) == "対象を確認してください"
+            assert len(window.attachments) == 2
+            window.session._initialize = tab_checks["initialize"]
+            window.send(None)
+            assert len(window.attachments) == 2
+            buffer.set_text("次のお願いの下書き")
+            stage = 20
+        elif stage == 20 and not window.session.busy:
+            assert not window.attachments
+            assert not window.attachment_scroll.get_visible()
+            buffer = window.input.get_buffer()
+            assert buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False) == "次のお願いの下書き"
+            text = window.conversation_text()
+            assert all(path in text for path in tab_checks["dropped"])
+            assert "JSON配列" in text
+            tab_checks["summary_source"] = text
+            window.conversation_popover.popup()
+            assert app.window.key_controller.emit("key-pressed", Gdk.KEY_Escape, 0, Gdk.ModifierType(0))
+            assert not window.conversation_popover.get_visible()
+            assert app.window.get_visible()
+            tab_checks["copied"] = []
+            window.get_clipboard = lambda: type("Clipboard", (), {"set": lambda _, text: tab_checks["copied"].append(text)})()
+            window.copy_button.emit("clicked")
+            assert tab_checks["copied"] == [text]
+            assert window.summary_button.get_sensitive()
+            window.summary_button.emit("clicked")
+            stage = 21
+        elif stage == 21 and not window.session.busy:
+            assert len(tab_checks["copied"]) == 2
+            assert tab_checks["copied"][1].startswith("以下は前の会話からの引き継ぎです。")
+            assert window.conversation_text() == tab_checks["summary_source"]
+            assert window.summary_button.get_sensitive()
             assert app.window.key_controller.emit("key-pressed", Gdk.KEY_q, 0, Gdk.ModifierType.CONTROL_MASK)
-            print("PASS: GTK tabs, approvals, wrapping URLs and Markdown tables", flush=True)
+            print("PASS: GTK tabs, approvals, file drops and conversation/summary copy", flush=True)
             return False
         return True
     except Exception as error:
@@ -296,5 +364,7 @@ def tick():
 
 app.connect("activate", lambda _: GLib.timeout_add(50, tick))
 app.run([sys.argv[0]])
+if "drop_dir" in tab_checks:
+    tab_checks["drop_dir"].cleanup()
 if failure:
     raise failure[0]

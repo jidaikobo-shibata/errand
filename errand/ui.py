@@ -3,6 +3,7 @@
 import argparse
 import json
 import sys
+from pathlib import Path
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -42,6 +43,8 @@ class Conversation(Gtk.Box):
         self.topic = "新しいお願い"
         self.messages = {}
         self.requests = {}
+        self.attachments = {}
+        self.pending_submission = None
         self.session = Session(self.event, dispatch=GLib.idle_add, codex=codex, command=app.command)
         self.model_entries = []
         self.effort_values = [None]
@@ -153,7 +156,19 @@ class Conversation(Gtk.Box):
         input_focus.connect("leave", lambda _: input_scroll.remove_css_class("editing"))
         self.input.add_controller(input_focus)
         input_scroll.set_child(self.input)
+        input_scroll.set_tooltip_text("ファイルをドロップして、お願いの対象にできます。")
+        self.attachment_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.attachment_scroll = Gtk.ScrolledWindow(max_content_height=100,
+                                                    propagate_natural_height=True,
+                                                    hscrollbar_policy=Gtk.PolicyType.NEVER,
+                                                    visible=False)
+        self.attachment_scroll.set_child(self.attachment_box)
+        body.append(self.attachment_scroll)
         body.append(input_scroll)
+        self.file_drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        self.file_drop.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.file_drop.connect("drop", self.drop_files)
+        self.add_controller(self.file_drop)
         row = Gtk.Box(spacing=8)
         self.send_button = Gtk.Button(label="送信", sensitive=False)
         self.send_button.add_css_class("suggested-action")
@@ -162,9 +177,18 @@ class Conversation(Gtk.Box):
         self.stop = Gtk.Button(label="中断", sensitive=False, visible=False)
         self.stop.connect("clicked", lambda _: self.session.interrupt())
         row.append(self.stop)
-        copy = Gtk.Button(label="会話をコピー")
-        copy.connect("clicked", self.copy)
-        row.append(copy)
+        self.conversation_menu = Gtk.MenuButton(label="会話について")
+        self.conversation_popover = Gtk.Popover()
+        menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.copy_button = Gtk.Button(label="会話全文をコピー")
+        self.copy_button.connect("clicked", self.copy)
+        menu.append(self.copy_button)
+        self.summary_button = Gtk.Button(label="引き継ぎ用の要約をコピー", sensitive=False)
+        self.summary_button.connect("clicked", self.copy_summary)
+        menu.append(self.summary_button)
+        self.conversation_popover.set_child(menu)
+        self.conversation_menu.set_popover(self.conversation_popover)
+        row.append(self.conversation_menu)
         row.append(Gtk.Box(hexpand=True))
         row.append(self.model_button)
         row.append(self.approval_choice)
@@ -178,6 +202,7 @@ class Conversation(Gtk.Box):
             GLib.source_remove(self._scroll_idle)
             self._scroll_idle = None
         self.model_popover.popdown()
+        self.conversation_popover.popdown()
         Gtk.StyleContext.remove_provider_for_display(self.get_display(), self.input_css)
         self.session.close(wait=False)
 
@@ -185,17 +210,70 @@ class Conversation(Gtk.Box):
         if self.owner.current is self:
             self.input.grab_focus()
 
+    def drop_files(self, target, file_list, x, y):
+        if self.closed:
+            return False
+        try:
+            paths = []
+            for file in file_list.get_files():
+                path = file.get_path()
+                if path is None or not Path(path).is_file():
+                    raise ValueError("ローカルのファイルをドロップしてください。")
+                paths.append(str(Path(path).absolute()))
+            if not paths:
+                return False
+            for path in paths:
+                if path in self.attachments:
+                    continue
+                row = Gtk.Box(spacing=8)
+                name = Gtk.Label(label=Path(path).name, xalign=0, hexpand=True,
+                                 ellipsize=Pango.EllipsizeMode.MIDDLE)
+                name.set_max_width_chars(48)
+                name.set_tooltip_text(path)
+                name.update_property([Gtk.AccessibleProperty.LABEL], ["対象ファイル: " + path])
+                row.append(name)
+                remove = Gtk.Button(icon_name="window-close-symbolic", tooltip_text="対象から外す")
+                remove.update_property([Gtk.AccessibleProperty.LABEL], [Path(path).name + "を対象から外す"])
+                remove.connect("clicked", lambda _, value=path: self.remove_attachment(value))
+                row.append(remove)
+                self.attachments[path] = row
+                self.attachment_box.append(row)
+            self.attachment_scroll.set_visible(bool(self.attachments))
+            self.focus_input()
+            return True
+        except Exception as error:
+            self.status.set_text(str(error))
+            return False
+
+    def remove_attachment(self, path):
+        row = self.attachments.pop(path, None)
+        if row:
+            self.attachment_box.remove(row)
+        self.attachment_scroll.set_visible(bool(self.attachments))
+
+    def clear_attachments(self):
+        for path in list(self.attachments):
+            self.remove_attachment(path)
+
     def send(self, _):
         buffer = self.input.get_buffer()
         text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
         try:
+            if self.session.busy:
+                raise RuntimeError("現在のお願いが終わるまでお待ちください。")
+            if not text.strip():
+                raise ValueError("ファイルについてのお願いを入力してください。" if self.attachments else "お願いを入力してください。")
             entry = self.selected_model()
             if entry is None:
                 raise RuntimeError("モデルを取得して選択してから送信してください。")
+            draft = text
+            attachments = dict(self.attachments)
+            if self.attachments:
+                text += "\n\n対象ファイル（ローカルの絶対パス、JSON配列）:\n" + json.dumps(list(self.attachments), ensure_ascii=False)
             self.session.send(text,
                               model=entry["model"] if entry else None, effort=self.selected_effort())
+            self.pending_submission = (draft, attachments, text.strip())
             self.model_popover.popdown()
-            buffer.set_text("")
         except Exception as error:
             self.status.set_text(str(error))
 
@@ -214,6 +292,8 @@ class Conversation(Gtk.Box):
         return self.effort_values[index] if index < len(self.effort_values) else None
 
     def update_model_controls(self):
+        self.summary_button.set_sensitive(not self.session.busy and self.selected_model() is not None
+                                          and bool(self.conversation_text()))
         locked = self.session.busy
         self.approval_choice.set_sensitive(not locked)
         self.model_button.set_sensitive(not locked)
@@ -330,7 +410,18 @@ class Conversation(Gtk.Box):
     def event(self, kind, data):
         if self.closed:
             return
-        if kind == "models_state":
+        if kind == "submitted":
+            pending = self.pending_submission
+            if pending and pending[2] == data["text"]:
+                draft, attachments, _ = pending
+                self.pending_submission = None
+                buffer = self.input.get_buffer()
+                if buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False) == draft:
+                    buffer.set_text("")
+                for path, row in attachments.items():
+                    if self.attachments.get(path) is row:
+                        self.remove_attachment(path)
+        elif kind == "models_state":
             self.models_loading = data["loading"]
             if self.models_loading:
                 self.model_status.set_text("モデル一覧を取得中…")
@@ -362,6 +453,9 @@ class Conversation(Gtk.Box):
                     self.page.set_title(self.topic)
                     self.page.set_tooltip(data["text"][:200])
             self.add_message("あなた", data["text"])
+            self.update_model_controls()
+        elif kind == "summary":
+            self.get_clipboard().set(data["text"])
         elif kind in {"delta", "assistant"}:
             item_id = data["item_id"]
             content = self.messages.get(item_id)
@@ -376,6 +470,7 @@ class Conversation(Gtk.Box):
             description = item.get("command") or item.get("type", "作業")
             self.status.set_text(("完了: " if data["completed"] else "実行: ") + description)
         elif kind == "error":
+            self.pending_submission = None
             self.add_message("エラー", data["message"])
         elif kind == "state":
             busy = data["busy"]
@@ -395,6 +490,8 @@ class Conversation(Gtk.Box):
             for request_id in list(self.requests):
                 self.remove_request(request_id)
         elif kind == "reset":
+            self.pending_submission = None
+            self.clear_attachments()
             self.focus_input()
             while (child := self.history.get_first_child()) is not None:
                 self.history.remove(child)
@@ -495,7 +592,19 @@ class Conversation(Gtk.Box):
         return "\n\n".join(texts)
 
     def copy(self, _):
+        self.conversation_popover.popdown()
         self.get_clipboard().set(self.conversation_text())
+        self.status.set_text("会話全文をコピーしました。")
+
+    def copy_summary(self, _):
+        self.conversation_popover.popdown()
+        try:
+            entry = self.selected_model()
+            if entry is None:
+                raise ValueError("モデルを選んでください。")
+            self.session.summarize(self.conversation_text(), model=entry["model"], effort=self.selected_effort())
+        except Exception as error:
+            self.status.set_text(str(error))
 
 
 class Window(Adw.ApplicationWindow):
@@ -558,6 +667,9 @@ class Window(Adw.ApplicationWindow):
         return True
 
     def key(self, controller, keyval, keycode, state):
+        if self.current and self.current.conversation_popover.get_visible() and keyval == Gdk.KEY_Escape:
+            self.current.conversation_popover.popdown()
+            return True
         if self.current and self.current.model_popover.get_visible():
             if keyval == Gdk.KEY_Escape:
                 self.current.model_popover.popdown()
@@ -585,14 +697,19 @@ class Window(Adw.ApplicationWindow):
         return False
 
     def outside_click(self, gesture, count, x, y):
-        if not self.current or not self.current.model_popover.get_visible():
+        if not self.current:
             return
-        target = self.pick(x, y, Gtk.PickFlags.DEFAULT)
-        while target is not None:
-            if target in (self.current.model_popover, self.current.model_button):
-                return
-            target = target.get_parent()
-        self.current.model_popover.popdown()
+        for popover, button in ((self.current.model_popover, self.current.model_button),
+                                (self.current.conversation_popover, self.current.conversation_menu)):
+            if not popover.get_visible():
+                continue
+            target = self.pick(x, y, Gtk.PickFlags.DEFAULT)
+            while target is not None:
+                if target in (popover, button):
+                    break
+                target = target.get_parent()
+            if target is None:
+                popover.popdown()
 
     def quit_application(self):
         if not any(conversation.session.busy for conversation in self.conversations):

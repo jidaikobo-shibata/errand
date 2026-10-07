@@ -51,7 +51,17 @@ for line in sys.stdin:
         text = message["params"]["input"][0]["text"]
         reply(message, {"turn": {"id": f"turn-{turn}", "status": "inProgress"}})
         event("turn/started", turn={"id": f"turn-{turn}"})
-        if text == "approval":
+        if text.startswith("次の会話を新しいCodexスレッドへ引き継ぐために要約してください。"):
+            if "--fail-summary" in sys.argv:
+                event("turn/completed", turn={"id": f"turn-{turn}", "status": "failed"})
+            elif "--wait-summary" in sys.argv:
+                pass
+            elif "--summary-request" in sys.argv:
+                pending = "summary"
+                send({"id": "summary-request", "method": "item/commandExecution/requestApproval", "params": {"command": "touch /tmp/summary-output"}})
+            else:
+                complete("## 目的\n会話の引き継ぎ\n\n" + json.dumps(thread_params, ensure_ascii=False))
+        elif text == "approval":
             pending = "approval"
             send({"id": "approval-1", "method": "item/commandExecution/requestApproval", "params": {
                 "threadId": "thread-1", "turnId": f"turn-{turn}", "itemId": "cmd-1", "command": "pwd", "startedAtMs": 0}})

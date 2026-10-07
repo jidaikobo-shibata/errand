@@ -22,7 +22,8 @@ class ShutdownTests(unittest.TestCase):
 pid=os.fork()
 if pid==0:
  signal.signal(signal.SIGTERM,signal.SIG_IGN)
- open(sys.argv[1],'w').write(str(os.getpid()))
+ with open(sys.argv[1]+'.tmp','w') as file: file.write(str(os.getpid()))
+ os.replace(sys.argv[1]+'.tmp',sys.argv[1])
  time.sleep(60)
  os._exit(0)
 while not os.path.exists(sys.argv[1]): time.sleep(.01)
@@ -36,6 +37,7 @@ sys.stdin.read()
                 deadline = time.monotonic() + 3
                 while not ready.exists() and time.monotonic() < deadline:
                     time.sleep(.01)
+                self.assertTrue(ready.exists(), "Child did not publish its PID")
                 child = int(ready.read_text())
                 # Leader exits first, retaining a signal-resistant child and pipes.
                 server._process.stdin.close()

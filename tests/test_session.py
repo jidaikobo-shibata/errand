@@ -40,6 +40,61 @@ class SessionTests(unittest.TestCase):
         self.wait(lambda: any(k == "models_state" and not d["loading"] for k, d in self.events))
         return next(d["models"] for k, d in self.events if k == "models")
 
+    def test_summary_uses_separate_ephemeral_thread_and_preserves_conversation(self):
+        self.catalogue()
+        self.session.send("元の依頼", model="fake-fast", effort="low")
+        self.finished()
+        server, thread = self.session._server, self.session.thread_id
+        self.events.clear()
+        self.session.approvals_reviewer = "auto_review"
+        self.session.summarize("あなた\n元の依頼\nCodex\n回答", model="fake-fast", effort="low")
+        self.finished()
+        result = next(d["text"] for k, d in self.events if k == "summary")
+        self.assertTrue(result.startswith("以下は前の会話からの引き継ぎです。"))
+        params = json.loads(result[result.index('{'):])
+        self.assertTrue(params["ephemeral"])
+        self.assertEqual(params["approvalsReviewer"], "user")
+        self.assertEqual(params["sandbox"], "read-only")
+        self.assertEqual(params["model"], "fake-fast")
+        self.assertEqual(params["config"]["model_reasoning_effort"], "low")
+        self.assertIn("ツールは使わず", params["developerInstructions"])
+        self.assertIs(self.session._server, server)
+        self.assertEqual(self.session.thread_id, thread)
+        self.assertFalse(any(k in {"user", "assistant", "delta"} for k, _ in self.events))
+
+    def test_failed_summary_does_not_emit_copy(self):
+        self.session.command.append("--fail-summary")
+        self.session.summarize("会話")
+        self.finished()
+        self.assertFalse(any(k == "summary" for k, _ in self.events))
+        self.assertFalse(self.session.busy)
+
+    def test_summary_rejects_operation_requests(self):
+        self.session.command.append("--summary-request")
+        self.session.summarize("会話")
+        self.finished()
+        self.assertFalse(any(k in {"summary", "request"} for k, _ in self.events))
+        self.assertIn("操作要求を拒否", self.events[-1][1]["message"])
+
+    def test_summary_can_be_interrupted(self):
+        self.session.command.append("--wait-summary")
+        self.session.summarize("会話")
+        self.wait(lambda: self.session._summary is not None and self.session._summary._turn_id is not None)
+        with self.assertRaises(RpcError):
+            self.session.send("次の依頼")
+        self.session.interrupt()
+        self.finished()
+        self.assertFalse(any(k == "summary" for k, _ in self.events))
+
+    def test_closing_session_stops_summary_server(self):
+        self.session.command.append("--wait-summary")
+        self.session.summarize("会話")
+        self.wait(lambda: self.session._summary is not None and self.session._summary._turn_id is not None)
+        server = self.session._summary._server
+        self.session.close()
+        self.assertIsNotNone(server._process.poll())
+        self.assertFalse(any(k == "summary" for k, _ in self.events))
+
     def settings(self):
         return json.loads(next(d["text"] for k, d in self.events if k == "assistant"))
 

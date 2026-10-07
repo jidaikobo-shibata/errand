@@ -624,6 +624,10 @@ class Window(Adw.ApplicationWindow):
         self.new.connect("clicked", lambda _: self.new_tab())
         header.pack_start(self.new)
         self.tabs = Adw.TabView(vexpand=True)
+        # Keep document-boundary keys available to text widgets, including
+        # Ctrl+Up/Down translated to Ctrl+Home/End by xremap.
+        self.tabs.set_shortcuts(self.tabs.get_shortcuts() &
+                                ~(Adw.TabViewShortcuts.CONTROL_HOME | Adw.TabViewShortcuts.CONTROL_END))
         self.tabs.connect("close-page", self.close_page)
         self.tabs.connect("notify::selected-page", self.selected_tab)
         bar = Adw.TabBar(view=self.tabs, autohide=False)
@@ -676,6 +680,14 @@ class Window(Adw.ApplicationWindow):
                 return True
         modifiers = state & Gtk.accelerator_get_default_mod_mask()
         if modifiers == Gdk.ModifierType.CONTROL_MASK and self.close_dialog is None:
+            if self.current and self.current.input.has_focus() and keyval in (
+                    Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Home, Gdk.KEY_End):
+                view = self.current.input
+                buffer = view.get_buffer()
+                buffer.place_cursor(buffer.get_start_iter() if keyval in (Gdk.KEY_Up, Gdk.KEY_Home)
+                                    else buffer.get_end_iter())
+                view.scroll_mark_onscreen(buffer.get_insert())
+                return True
             if keyval in (Gdk.KEY_q, Gdk.KEY_Q):
                 self.quit_application()
                 return True

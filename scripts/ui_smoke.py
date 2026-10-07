@@ -7,7 +7,7 @@ import time
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from errand.ui import Application, Gdk, Gio, GLib, Gtk
+from errand.ui import Application, Adw, Gdk, Gio, GLib, Gtk
 from errand.markdown_widget import CodeBlock, TableBlock
 
 root = Path(__file__).resolve().parent.parent
@@ -26,6 +26,9 @@ def tick():
         if stage == 0:
             if window.models_loading or not window.model_entries:
                 return True
+            window.input.grab_focus()
+            if not window.input.has_focus():
+                return True
             assert [entry["model"] for entry in window.model_entries] == ["fake-fast", "fake-steady", "fake-no-effort"]
             assert window.selected_model()["model"] == "fake-fast"
             assert window.selected_effort() == "low"
@@ -36,8 +39,26 @@ def tick():
             assert window.selected_effort() == "high"
             window.effort_choice.set_selected(0)
             assert window.selected_effort() == "low"
-            window.input.get_buffer().set_text("approval")
             window.input.grab_focus()
+            buffer = window.input.get_buffer()
+            buffer.set_text("先頭\n途中\n末尾")
+            page = app.window.tabs.get_selected_page()
+            assert app.window.key_controller.emit("key-pressed", Gdk.KEY_Up, 0, Gdk.ModifierType.CONTROL_MASK)
+            assert buffer.get_iter_at_mark(buffer.get_insert()).get_offset() == 0
+            assert app.window.key_controller.emit("key-pressed", Gdk.KEY_Down, 0, Gdk.ModifierType.CONTROL_MASK)
+            assert buffer.get_iter_at_mark(buffer.get_insert()).get_offset() == buffer.get_char_count()
+            assert not (app.window.tabs.get_shortcuts() &
+                        (Adw.TabViewShortcuts.CONTROL_HOME | Adw.TabViewShortcuts.CONTROL_END))
+            assert app.window.tabs.get_shortcuts() & Adw.TabViewShortcuts.CONTROL_PAGE_UP
+            assert app.window.key_controller.emit("key-pressed", Gdk.KEY_Home, 0, Gdk.ModifierType.CONTROL_MASK)
+            assert buffer.get_iter_at_mark(buffer.get_insert()).get_offset() == 0
+            assert app.window.key_controller.emit("key-pressed", Gdk.KEY_End, 0, Gdk.ModifierType.CONTROL_MASK)
+            assert buffer.get_iter_at_mark(buffer.get_insert()).get_offset() == buffer.get_char_count()
+            assert app.window.tabs.get_selected_page() is page
+            window.send_button.grab_focus()
+            assert not app.window.key_controller.emit("key-pressed", Gdk.KEY_Up, 0, Gdk.ModifierType.CONTROL_MASK)
+            window.input.grab_focus()
+            buffer.set_text("approval")
             assert app.window.key_controller.get_propagation_phase() == Gtk.PropagationPhase.CAPTURE
             assert not app.window.key_controller.emit("key-pressed", Gdk.KEY_Return, 0, Gdk.ModifierType(0))
             assert not window.session.busy
@@ -206,11 +227,22 @@ def tick():
         elif stage == 13:
             if window.models_loading or not window.model_entries:
                 return True
+            window.input.grab_focus()
+            if not window.input.has_focus():
+                return True
             tab_checks["second"] = window
             assert window.history.get_first_child() is None
             assert window.session is not tab_checks["first"].session
             assert window.session.approvals_reviewer == "user"
             assert tab_checks["first"].session.approvals_reviewer == "auto_review"
+            buffer = window.input.get_buffer()
+            buffer.set_text("先頭\n末尾")
+            assert app.window.key_controller.emit("key-pressed", Gdk.KEY_Home, 0, Gdk.ModifierType.CONTROL_MASK)
+            assert buffer.get_iter_at_mark(buffer.get_insert()).get_offset() == 0
+            assert app.window.current is window
+            assert app.window.key_controller.emit("key-pressed", Gdk.KEY_End, 0, Gdk.ModifierType.CONTROL_MASK)
+            assert buffer.get_iter_at_mark(buffer.get_insert()).get_offset() == buffer.get_char_count()
+            assert app.window.current is window
             window.input.get_buffer().set_text("approval")
             window.send(None)
             stage = 14

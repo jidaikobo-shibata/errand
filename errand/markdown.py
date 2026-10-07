@@ -16,6 +16,8 @@ class Block:
     text: str
     language: str = ""
     complete: bool = True
+    rows: tuple = ()
+    alignments: tuple = ()
 
 
 def blocks(source):
@@ -33,7 +35,7 @@ def blocks(source):
                 code.append(line)
         elif marker:
             if prose:
-                result.append(Block("text", "".join(prose)))
+                result.extend(prose_blocks("".join(prose)))
                 prose = []
             fence, language = marker[1], marker[2].strip()
         else:
@@ -41,6 +43,70 @@ def blocks(source):
     if fence:
         result.append(Block("code", "".join(code), language, complete=False))
     elif prose:
+        result.extend(prose_blocks("".join(prose)))
+    return result
+
+
+def table_cells(line):
+    line = line.strip()
+    if line.startswith("|"):
+        line = line[1:]
+    if line.endswith("|") and not line.endswith("\\|"):
+        line = line[:-1]
+    cells, cell, escaped, fence = [], [], False, 0
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if escaped:
+            cell.append(char if char == "|" else "\\" + char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == "`":
+            end = index
+            while end < len(line) and line[end] == "`":
+                end += 1
+            count = end - index
+            fence = 0 if fence == count else count if not fence else fence
+            cell.append(line[index:end])
+            index = end - 1
+        elif char == "|" and not fence:
+            cells.append("".join(cell).strip())
+            cell = []
+        else:
+            cell.append(char)
+        index += 1
+    if escaped:
+        cell.append("\\")
+    return cells + ["".join(cell).strip()]
+
+
+def prose_blocks(source):
+    lines = source.splitlines(keepends=True)
+    result, prose = [], []
+    index = 0
+    while index < len(lines):
+        header = table_cells(lines[index])
+        separators = table_cells(lines[index + 1]) if index + 1 < len(lines) else []
+        if ("|" in lines[index] and len(header) == len(separators)
+                and all(re.fullmatch(r":?-{3,}:?", cell) for cell in separators)):
+            if prose:
+                result.append(Block("text", "".join(prose)))
+                prose = []
+            start = index
+            rows = [tuple(header)]
+            index += 2
+            while index < len(lines) and lines[index].strip() and "|" in lines[index]:
+                cells = table_cells(lines[index])
+                rows.append(tuple((cells + [""] * len(header))[:len(header)]))
+                index += 1
+            alignments = tuple("center" if cell.startswith(":") and cell.endswith(":")
+                               else "right" if cell.endswith(":") else "left" for cell in separators)
+            result.append(Block("table", "".join(lines[start:index]), rows=tuple(rows), alignments=alignments))
+        else:
+            prose.append(lines[index])
+            index += 1
+    if prose:
         result.append(Block("text", "".join(prose)))
     return result
 

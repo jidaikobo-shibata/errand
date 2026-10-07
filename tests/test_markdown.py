@@ -29,6 +29,20 @@ class MarkdownTests(unittest.TestCase):
         self.assertEqual(blocks("```\n```")[0].text, "")
         self.assertEqual(blocks("```text\r\na\r\n\r\n```\r\n")[0].text, "a\r\n\r\n")
 
+    def test_table_rows_alignment_and_surrounding_prose(self):
+        result = blocks("前文\n\n| 名前 | 数 | 中央 |\n| :--- | ---: | :---: |\n| **項目** | 12 | 値 |\n\n後文")
+        self.assertEqual([part.kind for part in result], ["text", "table", "text"])
+        self.assertEqual(result[1].rows, (("名前", "数", "中央"), ("**項目**", "12", "値")))
+        self.assertEqual(result[1].alignments, ("left", "right", "center"))
+
+    def test_table_escaped_pipes_missing_cells_and_code_fences(self):
+        result = blocks("| A | B |\n| --- | --- |\n| a\\|b | `x|y` |\n| one |\n| a | b | extra |")
+        self.assertEqual(result[0].rows[1], ("a|b", "`x|y`"))
+        self.assertEqual(result[0].rows[2], ("one", ""))
+        self.assertEqual(result[0].rows[3], ("a", "b"))
+        self.assertEqual(blocks("```\n| A | B |\n| --- | --- |\n``` ")[0].kind, "code")
+        self.assertEqual(blocks("| A | B |\n| -- | -- |\n")[0].kind, "text")
+
     def test_headings_lists_and_emphasis(self):
         root = parsed("# 題名\n\n- **太字**と*斜体*\n  - 子項目\n1. `code`\n> 引用\n~~削除~~")
         self.assertEqual(root.find("span").get("weight"), "bold")

@@ -7,7 +7,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from errand.ui import Application, Gdk, GLib, Gtk
-from errand.markdown_widget import CodeBlock
+from errand.markdown_widget import CodeBlock, TableBlock
 
 root = Path(__file__).resolve().parent.parent
 app = Application(isolated=True, command=[sys.executable, str(root / "tests/fake_server.py")])
@@ -44,7 +44,8 @@ def tick():
             assert window.session.busy
             stage = 1
         elif stage == 1 and window.requests:
-            assert window.requests["approval-1"].get_last_child().get_first_child().has_focus()
+            if not window.requests["approval-1"].get_last_child().get_first_child().has_focus():
+                return True
             assert not window.model_choice.get_sensitive()
             assert not window.effort_choice.get_sensitive()
             window.session.answer("approval-1", {"decision": "decline"})
@@ -133,7 +134,8 @@ def tick():
             window.send(None)
             stage = 6
         elif stage == 6 and "permissions-1" in window.requests:
-            assert window.requests["permissions-1"].get_last_child().get_first_child().has_focus()
+            if not window.requests["permissions-1"].get_last_child().get_first_child().has_focus():
+                return True
             assert not window.approval_choice.get_sensitive()
             request = window.requests["permissions-1"]
             reason = request.get_first_child().get_next_sibling()
@@ -264,8 +266,27 @@ def tick():
             assert app.window.tabs.get_n_pages() == 1
             assert app.window.current.history.get_first_child() is None
             assert app.window.current is not first
+            window = app.window.current
+            long_url = "https://example.com/" + "token" * 300
+            window.add_message("あなた", long_url)
+            source = "| 項目 | 内容 |\n| --- | --- |\n| **URL** | " + long_url + " |\n| 安全 | <script>& |"
+            table_view = window.add_message("Codex", source, markdown=True)
+            table = next(part for part in table_view._parts if isinstance(part, TableBlock))
+            assert table.cells[2].get_text() == "URL"
+            assert table.cells[-1].get_text() == "<script>&"
+            assert source in window.conversation_text()
+            tab_checks["table"] = table
+            stage = 18
+        elif stage == 18:
+            table = tab_checks["table"]
+            assert app.window.get_width() <= 680
+            assert table.get_width() <= window.scroll.get_width()
+            user_box = window.history.get_first_child()
+            assert user_box.get_width() <= window.scroll.get_width()
+            assert user_box.get_last_child().get_wrap_mode().value_nick == "word-char"
+            assert user_box.get_last_child().get_layout().get_line_count() > 1
             assert app.window.key_controller.emit("key-pressed", Gdk.KEY_q, 0, Gdk.ModifierType.CONTROL_MASK)
-            print("PASS: GTK tabs, Ctrl+Q, isolated sessions, busy close/cancel, hide, models, Markdown and scroll", flush=True)
+            print("PASS: GTK tabs, approvals, wrapping URLs and Markdown tables", flush=True)
             return False
         return True
     except Exception as error:

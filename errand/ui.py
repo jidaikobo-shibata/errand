@@ -7,7 +7,7 @@ import sys
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from .session import Session
 from .markdown_widget import MarkdownView
@@ -15,6 +15,7 @@ from .markdown_widget import MarkdownView
 
 def label(text):
     widget = Gtk.Label(label=text, xalign=0, wrap=True, selectable=True)
+    widget.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
     return widget
 
 
@@ -74,7 +75,8 @@ class Conversation(Gtk.Box):
         self.model_popover.set_child(selection)
         self.model_button = Gtk.MenuButton(label="モデル取得中…", tooltip_text="モデルと推論の強さを変更")
         self.model_button.set_popover(self.model_popover)
-        self.scroll = Gtk.ScrolledWindow(vexpand=True, min_content_height=220)
+        self.scroll = Gtk.ScrolledWindow(vexpand=True, min_content_height=220,
+                                        hscrollbar_policy=Gtk.PolicyType.NEVER)
         self._scroll_idle = None
         # GTK can restore the old value after emitting changed during layout.
         # Defer moving to the bottom until that allocation has finished.
@@ -92,6 +94,15 @@ class Conversation(Gtk.Box):
         input_scroll.add_css_class("errand-input")
         self.input_css = Gtk.CssProvider()
         self.input_css.load_from_data(b"""
+            .errand-table-cell {
+                padding: 8px;
+                border-bottom: 1px solid alpha(@window_fg_color, 0.15);
+                border-right: 1px solid alpha(@window_fg_color, 0.10);
+            }
+            .errand-table-header {
+                background-color: alpha(@window_fg_color, 0.06);
+                font-weight: bold;
+            }
             .errand-message {
                 padding: 8px 0;
             }

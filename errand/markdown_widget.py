@@ -1,7 +1,7 @@
 """Markdown prose and framed, independently copyable fenced code blocks."""
 from gi.repository import GObject, GLib, Gtk, Pango
 
-from .markdown import blocks, render
+from .markdown import blocks, inline, render
 
 
 class CodeBlock(Gtk.Frame):
@@ -45,6 +45,45 @@ class CodeBlock(Gtk.Frame):
         self.copy_button.set_label("コピーしました")
 
 
+class TableBlock(Gtk.Grid):
+    def __init__(self, block):
+        super().__init__(column_homogeneous=True, hexpand=True)
+        self.add_css_class("card")
+        self.cells = []
+        self.update(block)
+
+    def update(self, block):
+        if getattr(self, "block", None) == block:
+            return
+        self.block = block
+        while (child := self.get_first_child()) is not None:
+            self.remove(child)
+        self.cells = []
+        self.update_property([Gtk.AccessibleProperty.LABEL], ["表: " + "、".join(block.rows[0])])
+        for row_index, row in enumerate(block.rows):
+            for column, text in enumerate(row):
+                cell = Gtk.Label(wrap=True, selectable=True, hexpand=True, valign=Gtk.Align.FILL)
+                cell.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                cell.set_max_width_chars(24)
+                cell.set_xalign({"left": 0, "center": 0.5, "right": 1}[block.alignments[column]])
+                cell.set_markup(inline(text))
+                cell.add_css_class("errand-table-cell")
+                if row_index == 0:
+                    cell.add_css_class("errand-table-header")
+                else:
+                    cell.update_property([Gtk.AccessibleProperty.LABEL],
+                                         [block.rows[0][column] + ": " + cell.get_text()])
+                self.attach(cell, column, row_index, 1, 1)
+                self.cells.append(cell)
+
+    def get_text(self):
+        return "\n".join(" | ".join(cell.get_text() for cell in self.cells[start:start + len(self.block.rows[0])])
+                         for start in range(0, len(self.cells), len(self.block.rows[0])))
+
+    def get_label(self):
+        return "\n".join(cell.get_label() for cell in self.cells)
+
+
 class MarkdownView(Gtk.Box):
     __gsignals__ = {"rendered": (GObject.SignalFlags.RUN_LAST, None, ())}
 
@@ -80,20 +119,23 @@ class MarkdownView(Gtk.Box):
         self._pending = None
         parsed = blocks(self._source)
         for index, block in enumerate(parsed):
-            if index < len(self._parts) and isinstance(self._parts[index], CodeBlock) != (block.kind == "code"):
+            if index < len(self._parts) and self._parts[index].block_kind != block.kind:
                 for part in self._parts[index:]:
                     self.remove(part)
                 self._parts = self._parts[:index]
             if index == len(self._parts):
                 if block.kind == "code":
                     part = CodeBlock(block)
+                elif block.kind == "table":
+                    part = TableBlock(block)
                 else:
                     part = Gtk.Label(xalign=0, wrap=True, selectable=True)
                     part.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                part.block_kind = block.kind
                 self._parts.append(part)
                 self.append(part)
             part = self._parts[index]
-            if isinstance(part, CodeBlock):
+            if isinstance(part, (CodeBlock, TableBlock)):
                 part.update(block)
             else:
                 part.set_markup(render(block.text.rstrip("\r\n")))

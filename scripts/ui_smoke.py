@@ -9,6 +9,10 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from errand.ui import Application, Adw, Gdk, Gio, GLib, Gtk
 from errand.markdown_widget import CodeBlock, TableBlock
+from errand.math_widget import MathBlock
+from errand.markdown_widget import MarkdownView
+from errand.markdown import Block
+import cairo
 
 root = Path(__file__).resolve().parent.parent
 app = Application(isolated=True, command=[sys.executable, str(root / "tests/fake_server.py")])
@@ -385,8 +389,34 @@ def tick():
             assert tab_checks["copied"][1].startswith("以下は前の会話からの引き継ぎです。")
             assert window.conversation_text() == tab_checks["summary_source"]
             assert window.summary_button.get_sensitive()
+            math = window.add_message("Codex", r'分数です。\[\frac{1+x^2}{\sqrt{5}}=a_n\]続きです。', markdown=True)
+            tab_checks["math_view"] = math
+            stage = 22
+        elif stage == 22:
+            math = tab_checks["math_view"]
+            formula = next(part for part in math._parts if isinstance(part, MathBlock))
+            assert formula.layout is not None
+            assert formula.canvas.get_width() > 0 and formula.canvas.get_height() > 0
+            assert formula.canvas.get_width() < app.window.get_width()
+            copied = []
+            formula.copy_to_clipboard = copied.append
+            formula.copy_button.emit("clicked")
+            assert copied == [r'\frac{1+x^2}{\sqrt{5}}=a_n']
+            surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 400, 180)
+            formula.draw(formula.canvas, cairo.Context(surface), 400, 180)
+            assert any(surface.get_data())
+            fallback = MathBlock(Block("math", r'\input{/etc/passwd}'))
+            assert fallback.layout is None and fallback.fallback.get_visible()
+            assert fallback.get_text() == r'\input{/etc/passwd}'
+            streaming = MarkdownView(r'\[\frac{1}{')
+            assert streaming._parts[0].layout is None
+            streaming.set_source(r'\[\frac{1}{2}\]', immediate=True)
+            assert streaming._parts[0].layout is not None
+            math.set_source(r'\[\frac{1}{2}\]'+"\n"+r'\[\frac{3}{4}\]', immediate=True)
+            assert len(math._parts) == 3  # math, newline, math
+            assert math.get_source().endswith(r'\[\frac{3}{4}\]')
             assert app.window.key_controller.emit("key-pressed", Gdk.KEY_q, 0, Gdk.ModifierType.CONTROL_MASK)
-            print("PASS: GTK tabs, approvals, file drops and conversation/summary copy", flush=True)
+            print("PASS: GTK tabs, approvals, file drops, copy and math rendering", flush=True)
             return False
         return True
     except Exception as error:

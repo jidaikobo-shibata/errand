@@ -81,6 +81,45 @@ def table_cells(line):
     return cells + ["".join(cell).strip()]
 
 
+def math_blocks(source):
+    """Find math delimiters outside inline code; preserve unfinished displays."""
+    result, start, position = [], 0, 0
+    while position < len(source):
+        if source[position] == "`":
+            fence = re.match(r"`+", source[position:])[0]
+            end = source.find(fence, position + len(fence))
+            position = len(source) if end < 0 else end + len(fence)
+            continue
+        opener = next((mark for mark in (r"\[", r"\(", "$$", "$")
+                       if source.startswith(mark, position)), None)
+        if not opener or (position and source[position - 1] == "\\"):
+            position += 1
+            continue
+        closer = {r"\[": r"\]", r"\(": r"\)", "$$": "$$", "$": "$"}[opener]
+        begin = position + len(opener)
+        end = source.find(closer, begin)
+        while end >= 0 and closer.startswith("$") and source[end - 1] == "\\":
+            end = source.find(closer, end + len(closer))
+        display = opener in (r"\[", "$$")
+        if end < 0 and not display:
+            position = begin
+            continue
+        body = source[begin:end if end >= 0 else len(source)]
+        # Single dollar pairs containing prose/currency are not math.
+        if not display and (not body.strip() or "\n" in body or
+                            (opener == "$" and not re.search(r"[\\^_={}+*/-]", body))):
+            position = begin
+            continue
+        if start < position:
+            result.append(Block("text", source[start:position]))
+        result.append(Block("math", body.strip(), complete=end >= 0))
+        position = len(source) if end < 0 else end + len(closer)
+        start = position
+    if start < len(source):
+        result.append(Block("text", source[start:]))
+    return result
+
+
 def prose_blocks(source):
     lines = source.splitlines(keepends=True)
     result, prose = [], []
@@ -91,7 +130,7 @@ def prose_blocks(source):
         if ("|" in lines[index] and len(header) == len(separators)
                 and all(re.fullmatch(r":?-{3,}:?", cell) for cell in separators)):
             if prose:
-                result.append(Block("text", "".join(prose)))
+                result.extend(math_blocks("".join(prose)))
                 prose = []
             start = index
             rows = [tuple(header)]
@@ -107,7 +146,7 @@ def prose_blocks(source):
             prose.append(lines[index])
             index += 1
     if prose:
-        result.append(Block("text", "".join(prose)))
+        result.extend(math_blocks("".join(prose)))
     return result
 
 

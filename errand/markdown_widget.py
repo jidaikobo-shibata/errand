@@ -2,6 +2,7 @@
 from gi.repository import GObject, GLib, Gtk, Pango
 
 from .markdown import blocks, inline, render
+from .math_widget import MathBlock
 
 
 class CodeBlock(Gtk.Frame):
@@ -128,6 +129,8 @@ class MarkdownView(Gtk.Box):
                     part = CodeBlock(block)
                 elif block.kind == "table":
                     part = TableBlock(block)
+                elif block.kind == "math":
+                    part = MathBlock(block)
                 else:
                     part = Gtk.Label(xalign=0, wrap=True, selectable=True)
                     part.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
@@ -135,7 +138,7 @@ class MarkdownView(Gtk.Box):
                 self._parts.append(part)
                 self.append(part)
             part = self._parts[index]
-            if isinstance(part, (CodeBlock, TableBlock)):
+            if isinstance(part, (CodeBlock, TableBlock, MathBlock)):
                 part.update(block)
             else:
                 part.set_markup(render(block.text.rstrip("\r\n")))

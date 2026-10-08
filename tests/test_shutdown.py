@@ -3,18 +3,66 @@ from concurrent.futures import Future
 from pathlib import Path
 import os
 import signal
+import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from errand.protocol import AppServer
 from errand.session import Session
 
 
 class ShutdownTests(unittest.TestCase):
+    def test_exited_unreaped_server_is_cleaned_up(self):
+        disconnected = threading.Event()
+        with tempfile.TemporaryDirectory(prefix="errand-test-") as directory:
+            server = AppServer([sys.executable, "-c", "pass"], directory,
+                               lambda _: None, lambda _: None,
+                               lambda _: disconnected.set())
+            try:
+                server.start()
+                self.assertTrue(disconnected.wait(3))
+                server.close()
+                self.assertIsNotNone(server._process.returncode)
+                self.assertTrue(server._process.stdin.closed)
+                self.assertTrue(server._process.stdout.closed)
+                self.assertTrue(server._process.stderr.closed)
+                self.assertFalse(any(reader.is_alive() for reader in server._readers))
+            finally:
+                server.close()
+
+    def test_signal_retries_if_leader_exits_before_signal(self):
+        server = AppServer([], ".", lambda _: None, lambda _: None, lambda _: None)
+        server._process = Mock(pid=12345)
+        server._process.poll.side_effect = [None, 0]
+        server._process.wait.return_value = 0
+        with patch("errand.protocol.os.killpg", side_effect=[PermissionError(), ProcessLookupError()]) as killpg:
+            self.assertFalse(server._signal_group(signal.SIGTERM))
+            self.assertEqual(killpg.call_count, 2)
+            server._process.wait.assert_called_once_with(timeout=0.1)
+
+    def test_live_group_permission_denial_is_not_ignored(self):
+        server = AppServer([], ".", lambda _: None, lambda _: None, lambda _: None)
+        server._process = Mock(pid=12345)
+        server._process.poll.return_value = None
+        server._process.wait.side_effect = subprocess.TimeoutExpired("server", 0.1)
+        with patch("errand.protocol.os.killpg", side_effect=PermissionError()) as killpg:
+            with self.assertRaises(PermissionError):
+                server._signal_group(signal.SIGTERM)
+            killpg.assert_called_once_with(12345, signal.SIGTERM)
+
+    def test_surviving_group_permission_denial_is_not_ignored(self):
+        server = AppServer([], ".", lambda _: None, lambda _: None, lambda _: None)
+        server._process = Mock(pid=12345)
+        server._process.poll.return_value = 0
+        with patch("errand.protocol.os.killpg", side_effect=PermissionError()) as killpg:
+            with self.assertRaises(PermissionError):
+                server._signal_group(0)
+            self.assertEqual(killpg.call_count, 2)
+
     def test_signal_resistant_child_is_stopped_with_parent(self):
         with tempfile.TemporaryDirectory(prefix="errand-test-") as directory:
             ready = Path(directory) / "child.pid"

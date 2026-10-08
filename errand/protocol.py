@@ -195,10 +195,7 @@ class AppServer:
         self._signal_group(signal.SIGTERM)
         deadline = time.monotonic() + 1
         while time.monotonic() < deadline:
-            process.poll()  # Reap the leader so it does not keep the group alive.
-            try:
-                os.killpg(process.pid, 0)
-            except ProcessLookupError:
+            if not self._signal_group(0):
                 break
             time.sleep(0.02)
         self._signal_group(signal.SIGKILL)
@@ -213,7 +210,23 @@ class AppServer:
         process.stdin.close()
 
     def _signal_group(self, sig):
-        try:
-            os.killpg(self._process.pid, sig)
-        except ProcessLookupError:
-            pass
+        for attempt in range(2):
+            # macOS can report EPERM for a group with only an unreaped zombie.
+            # Reap the leader first; its surviving children still need a signal.
+            self._process.poll()
+            try:
+                os.killpg(self._process.pid, sig)
+            except ProcessLookupError:
+                return False
+            except PermissionError as error:
+                # macOS can deny signals while exit is still in progress and
+                # poll() still reports a running leader. Confirm exit before
+                # retrying; never suppress a denial for a live process/group.
+                if attempt:
+                    raise
+                try:
+                    self._process.wait(timeout=0.1)
+                except subprocess.TimeoutExpired:
+                    raise error
+            else:
+                return True

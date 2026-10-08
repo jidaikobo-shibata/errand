@@ -855,7 +855,7 @@ class Application(Adw.Application):
             application_menu = Gio.Menu()
             application_menu.append("Errandを終了", "app.quit")
             menu.append_submenu("Errand", application_menu)
-            self.set_menubar(menu)
+            self.connect("startup", lambda _: self.set_menubar(menu))
 
     def activate_window(self, _):
         if self.window is None:

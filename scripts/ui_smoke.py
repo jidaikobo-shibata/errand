@@ -30,6 +30,10 @@ def tick():
         if stage == 0:
             if window.models_loading or not window.model_entries:
                 return True
+            if sys.platform == "darwin":
+                assert app.get_is_registered()
+                assert app.get_menubar() is not None
+                assert app.get_menubar().get_n_items() == 1
             assert window.status.get_text() in STARTUP_TIPS
             assert window.status.get_visible()
             assert window.input.get_parent().get_tooltip_text() is None
@@ -387,7 +391,7 @@ def tick():
             assert len(window.attachments) == 2
             buffer.set_text("次のお願いの下書き")
             stage = 20
-        elif stage == 20 and not window.session.busy:
+        elif stage == 20 and not window.session.busy and window.pending_submission is None:
             assert not window.attachments
             assert not window.attachment_scroll.get_visible()
             buffer = window.input.get_buffer()
@@ -407,7 +411,7 @@ def tick():
             assert window.summary_button.get_sensitive()
             window.summary_button.emit("clicked")
             stage = 21
-        elif stage == 21 and not window.session.busy:
+        elif stage == 21 and not window.session.busy and len(tab_checks["copied"]) == 2:
             assert len(tab_checks["copied"]) == 2
             assert tab_checks["copied"][1].startswith("以下は前の会話からの引き継ぎです。")
             assert window.conversation_text() == tab_checks["summary_source"]

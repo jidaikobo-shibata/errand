@@ -13,6 +13,8 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from .session import Session
 from .markdown_widget import MarkdownView
+from .preferences import Preferences, load_settings, mac_key
+from .settings import DEFAULTS, validate
 
 
 STARTUP_TIPS = (
@@ -175,7 +177,7 @@ class Conversation(Gtk.Box):
         """)
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), self.input_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-        self.input = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        self.input = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False)
         self.input.update_property([Gtk.AccessibleProperty.LABEL, Gtk.AccessibleProperty.DESCRIPTION],
                                    ["お願い", STARTUP_TIPS[0]])
         input_focus = Gtk.EventControllerFocus()
@@ -668,6 +670,7 @@ class Window(Adw.ApplicationWindow):
         super().__init__(application=app, title="Errand — 小さなお願い",
                          default_width=640, default_height=740)
         self.app, self.codex = app, codex
+        self.add_css_class("errand-window")
         self.conversations = []
         self.close_dialog = None
         self.connect("close-request", self.hide_on_close)
@@ -675,10 +678,25 @@ class Window(Adw.ApplicationWindow):
         self.set_content(root)
         header = Adw.HeaderBar()
         root.append(header)
-        self.new = Gtk.Button(icon_name="tab-new-symbolic", tooltip_text="新しいタブ（Ctrl+T）")
+        self.new = Gtk.Button(label="＋", tooltip_text="新しいタブ（⌘+T）" if sys.platform == "darwin" else "新しいタブ（Ctrl+T）")
         self.new.update_property([Gtk.AccessibleProperty.LABEL], ["新しいタブ"])
         self.new.connect("clicked", lambda _: self.new_tab())
         header.pack_start(self.new)
+        self.preferences_button = Gtk.Button(tooltip_text="環境設定")
+        self.preferences_button.update_property([Gtk.AccessibleProperty.LABEL], ["環境設定"])
+        menu_icon = Gtk.DrawingArea(width_request=16, height_request=16)
+        def draw_menu(widget, context, width, height):
+            color = widget.get_color()
+            context.set_source_rgba(color.red, color.green, color.blue, color.alpha)
+            context.set_line_width(1.5)
+            for fraction in (.25, .5, .75):
+                context.move_to(2, height * fraction)
+                context.line_to(width - 2, height * fraction)
+            context.stroke()
+        menu_icon.set_draw_func(draw_menu)
+        self.preferences_button.set_child(menu_icon)
+        self.preferences_button.connect("clicked", lambda _: app.open_preferences())
+        header.pack_end(self.preferences_button)
         self.tabs = Adw.TabView(vexpand=True)
         # Keep document-boundary keys available to text widgets, including
         # Ctrl+Up/Down translated to Ctrl+Home/End by xremap.
@@ -738,7 +756,23 @@ class Window(Adw.ApplicationWindow):
         shortcut_modifiers = {Gdk.ModifierType.CONTROL_MASK}
         if sys.platform == "darwin":
             shortcut_modifiers.add(Gdk.ModifierType.META_MASK)
+        zoom_modifiers = modifiers & ~Gdk.ModifierType.SHIFT_MASK
+        if zoom_modifiers in shortcut_modifiers and self.close_dialog is None:
+            if keyval in (Gdk.KEY_plus, Gdk.KEY_KP_Add) or (
+                    keyval == Gdk.KEY_equal and modifiers in shortcut_modifiers):
+                self.app.change_font_size(1)
+                return True
+            if modifiers in shortcut_modifiers:
+                if keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+                    self.app.change_font_size(-1)
+                    return True
+                if keyval in (Gdk.KEY_0, Gdk.KEY_KP_0):
+                    self.app.change_font_size(0)
+                    return True
         if modifiers in shortcut_modifiers and self.close_dialog is None:
+            if keyval == Gdk.KEY_comma:
+                self.app.open_preferences()
+                return True
             if self.current and self.current.input.has_focus() and keyval in (
                     Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Home, Gdk.KEY_End):
                 view = self.current.input
@@ -841,31 +875,120 @@ class Application(Adw.Application):
         flags = Gio.ApplicationFlags.NON_UNIQUE if smoke or isolated else Gio.ApplicationFlags.DEFAULT_FLAGS
         super().__init__(application_id="jp.jidaikobo.Errand", flags=flags)
         GLib.set_application_name("Errand")
+        self.settings = load_settings(isolated=isolated or smoke)
+        codex = codex or self.settings.get("codex-path") or None
         self.codex, self.smoke = codex, smoke
         self.command = command
         self.window = None
+        self.preferences = None
+        self.font_css = Gtk.CssProvider()
+        self.mac_shortcut = None
+        self.registered_shortcut = ""
+        self.shortcut_error = None
         self.connect("activate", self.activate_window)
         self.connect("shutdown", self.shutdown_session)
         if sys.platform == "darwin":
+            preferences_action = Gio.SimpleAction.new("preferences", None)
+            preferences_action.connect("activate", lambda *_: self.open_preferences())
+            self.add_action(preferences_action)
+            self.set_accels_for_action("app.preferences", ["<Meta>comma"])
             action = Gio.SimpleAction.new("quit", None)
             action.connect("activate", lambda *_: self.window.quit_application() if self.window else self.quit())
             self.add_action(action)
             self.set_accels_for_action("app.quit", ["<Meta>q"])
             menu = Gio.Menu()
             application_menu = Gio.Menu()
+            application_menu.append("環境設定…", "app.preferences")
             application_menu.append("Errandを終了", "app.quit")
             menu.append_submenu("Errand", application_menu)
             self.connect("startup", lambda _: self.set_menubar(menu))
 
+    def apply_font(self):
+        size = self.settings.get("font-size")
+        self.font_css.load_from_data(f".errand-window {{ font-size: {size}pt; }}".encode())
+        if self.window:
+            from .math_widget import MathBlock
+            def resize(widget):
+                if isinstance(widget, MathBlock):
+                    widget.set_font_size(size)
+                child = widget.get_first_child()
+                while child:
+                    resize(child)
+                    child = child.get_next_sibling()
+            resize(self.window)
+
+    def register_shortcut(self, value):
+        if sys.platform != "darwin" or self.settings.isolated or value == self.registered_shortcut:
+            return
+        key, modifiers = mac_key(value)
+        if self.mac_shortcut is None:
+            from .macos_shortcut import MacShortcut
+            self.mac_shortcut = MacShortcut(lambda: GLib.idle_add(self.activate))
+        self.mac_shortcut.replace(key, modifiers)
+        self.registered_shortcut = value
+
+    def change_font_size(self, step):
+        size = (max(8, min(28, self.settings.get("font-size") + step))
+                if step else DEFAULTS["font-size"])
+        try:
+            self.settings.set_font_size(size)
+        except (OSError, ValueError) as exc:
+            if self.window and self.window.current:
+                self.window.current.status.set_text(str(exc))
+            return
+        self.apply_font()
+        if self.preferences:
+            self.preferences.font.set_value(size)
+
+    def save_preferences(self, values):
+        values = validate(values)
+        old_shortcut = self.registered_shortcut
+        self.register_shortcut(values["open-errand"])
+        try:
+            self.settings.save(values)
+        except Exception:
+            self.register_shortcut(old_shortcut)
+            raise
+        self.codex = values["codex-path"] or None
+        if self.window:
+            self.window.codex = self.codex
+        self.apply_font()
+
+    def open_preferences(self):
+        if self.window is None:
+            self.activate()
+        if self.preferences is None:
+            self.preferences = Preferences(self)
+            self.preferences.connect("close-request", self.preferences_closed)
+        self.preferences.present()
+
+    def preferences_closed(self, *_):
+        self.preferences = None
+        return False
+
     def activate_window(self, _):
         if self.window is None:
+            self.apply_font()
+            Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.font_css,
+                                                     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
             self.window = Window(self, self.codex)
+            try:
+                self.register_shortcut(self.settings.get("open-errand"))
+            except (ValueError, OSError, RuntimeError) as exc:
+                self.shortcut_error = str(exc)
+                self.window.current.status.set_text(self.shortcut_error)
             self.hold()
         self.window.present()
         if self.smoke:
             GLib.timeout_add(250, lambda: (self.quit(), False)[1])
 
     def shutdown_session(self, _):
+        if self.mac_shortcut:
+            self.mac_shortcut.close()
+        if self.preferences:
+            self.preferences.destroy()
+        if Gdk.Display.get_default():
+            Gtk.StyleContext.remove_provider_for_display(Gdk.Display.get_default(), self.font_css)
         if self.window:
             self.window.shutdown_sessions()
 

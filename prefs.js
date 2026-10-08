@@ -7,6 +7,12 @@ export default class ErrandPreferences extends ExtensionPreferences {
         const settings = this.getSettings();
         const page = new Adw.PreferencesPage({title: 'Errand'});
         page.add(shortcutGroup(window, settings));
+        const display = new Adw.PreferencesGroup({title: '表示'});
+        const font = Adw.SpinRow.new_with_range(8, 28, 1);
+        font.title = '文字サイズ（pt）';
+        settings.bind('font-size', font, 'value', 0);
+        display.add(font);
+        page.add(display);
         const group = new Adw.PreferencesGroup({
             title: 'Codex',
             description: '空欄ならPATHとnvmから検索します。',

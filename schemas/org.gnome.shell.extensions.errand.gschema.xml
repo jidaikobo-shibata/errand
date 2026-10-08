@@ -9,5 +9,10 @@
       <default>''</default>
       <summary>Absolute path to Codex, or empty for automatic discovery</summary>
     </key>
+    <key name="font-size" type="i">
+      <default>11</default>
+      <range min="8" max="28"/>
+      <summary>Chat font size in points</summary>
+    </key>
   </schema>
 </schemalist>

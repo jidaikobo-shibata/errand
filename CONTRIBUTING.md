@@ -54,12 +54,12 @@ python3 scripts/build_macos.py --output dist/macos-next
 
 macOSではCtrlに加えて⌘+Enterで送信、⌘+Tでタブ作成、⌘+Wでタブを閉じ、
 ⌘+Qまたはアプリメニューから終了できます。ウィンドウを閉じると隠れます。
-Dockから再度呼び出して開けます。メニューバー常駐やグローバルショートカットは未実装です。
+Dockから再度呼び出して開けます。メニューバー常駐は未実装です。起動キーはmacOSのCarbon APIで登録し、Errandが起動中の間だけ使えます。
 
 これは署名・公証済みの配布版ではありません。仲間のMacでソースから生成する検証を想定しています。
 GTKのmacOS対応を利用しますが、ErrandとしてのmacOS実機動作はまだ確認していません。
 最初にFinderからの単一・複数ファイルのドロップ、日本語ファイル名、日本語入力、
-コピー、Dockからの再表示、終了と子プロセスの停止を確認してください。
+コピー、Dockからの再表示、起動キーの登録・競合・再表示、終了と子プロセスの停止を確認してください。
 
 ## テストと変更の反映
 
@@ -86,3 +86,15 @@ Pythonの変更はアプリ終了・再起動で反映します。
 
 プロトコルの詳細は [Codex App Serverドキュメント](https://learn.chatgpt.com/docs/app-server)、
 GNOME拡張については [GJSガイド](https://gjs.guide/extensions/) を参照してください。
+
+## 環境設定の検証
+
+実際の設定を変更しないGTK操作検証:
+
+```bash
+env GSETTINGS_BACKEND=memory python3 scripts/preferences_smoke.py
+```
+
+GNOMEではGSettingsを共有し、macOSでは利用者のApplication Support内に設定を保存します。
+設定ファイルとCodexのパスはローカル情報なので、リポジトリや配布物へ含めないでください。
+新しいスキーマを追加した場合はビルド時にコンパイルし、拡張の設定画面を開き直してください。

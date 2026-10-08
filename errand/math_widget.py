@@ -99,7 +99,23 @@ class MathBlock(Gtk.Box):
         self.append(self.copy_button)
         self.copy_to_clipboard = lambda text: self.get_clipboard().set(text)
         self.layout = None
+        self.font_size = 18
+        self.connect("map", self.sync_font_size)
         self.update(block)
+
+    def sync_font_size(self, *_):
+        root = self.get_root()
+        app = root.get_application() if root and hasattr(root, "get_application") else None
+        if app and hasattr(app, "settings"):
+            self.set_font_size(app.settings.get("font-size"))
+
+    def set_font_size(self, points):
+        size = 18 * points / 11
+        if self.font_size != size:
+            self.font_size = size
+            block = self.block
+            self.block = None
+            self.update(block)
 
     def update(self, block):
         if getattr(self, "block", None) == block:
@@ -115,7 +131,7 @@ class MathBlock(Gtk.Box):
             try:
                 formula = parse_formula(block.text)
                 surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1)
-                self.layout = layout_formula(formula, cairo.Context(surface), 18)
+                self.layout = layout_formula(formula, cairo.Context(surface), self.font_size)
                 if self.layout.width > 2048 or self.layout.height > 1024:
                     raise ValueError("数式の表示が大きすぎます。")
                 readable = "数式: " + formula.readable()

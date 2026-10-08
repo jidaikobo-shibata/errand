@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -12,6 +13,16 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from .session import Session
 from .markdown_widget import MarkdownView
+
+
+STARTUP_TIPS = (
+    "ファイルをドロップして、お願いの対象にできます。",
+    "計算や、計算の説明を頼めます。",
+    "翻訳や文章の推敲を頼めます。",
+    "Codexに設定済みのスキルを使えます。",
+    "調べものを頼めます。",
+    "端末内のファイル探しを頼めます。",
+)
 
 
 def label(text):
@@ -81,15 +92,23 @@ class Conversation(Gtk.Box):
         self.scroll = Gtk.ScrolledWindow(vexpand=True, min_content_height=220,
                                         hscrollbar_policy=Gtk.PolicyType.NEVER)
         self._scroll_idle = None
+        self._follow_bottom = True
+        self._scroll_setting = False
+        self._scroll_layout = False
         # GTK can restore the old value after emitting changed during layout.
         # Defer moving to the bottom until that allocation has finished.
-        self.scroll.get_vadjustment().connect("changed", lambda *_: self.queue_scroll_bottom())
+        self.scroll.get_vadjustment().connect("changed", self.scroll_layout_changed)
+        self.scroll.get_vadjustment().connect("value-changed", self.scroll_position_changed)
+        self.scroll_controller = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
+        self.scroll_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.scroll_controller.connect("scroll", self.user_scroll)
+        self.scroll.add_controller(self.scroll_controller)
         self.history = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.scroll.set_child(self.history)
         body.append(self.scroll)
         self.request_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         body.append(self.request_box)
-        self.status = status_label()
+        self.status = status_label(random.choice(STARTUP_TIPS))
         self.status.add_css_class("errand-status")
         self.status.update_property([Gtk.AccessibleProperty.LABEL], ["実行状況"])
         body.append(self.status)
@@ -150,13 +169,13 @@ class Conversation(Gtk.Box):
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), self.input_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.input = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
-        self.input.update_property([Gtk.AccessibleProperty.LABEL], ["お願い"])
+        self.input.update_property([Gtk.AccessibleProperty.LABEL, Gtk.AccessibleProperty.DESCRIPTION],
+                                   ["お願い", STARTUP_TIPS[0]])
         input_focus = Gtk.EventControllerFocus()
         input_focus.connect("enter", lambda _: input_scroll.add_css_class("editing"))
         input_focus.connect("leave", lambda _: input_scroll.remove_css_class("editing"))
         self.input.add_controller(input_focus)
         input_scroll.set_child(self.input)
-        input_scroll.set_tooltip_text("ファイルをドロップして、お願いの対象にできます。")
         self.attachment_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.attachment_scroll = Gtk.ScrolledWindow(max_content_height=100,
                                                     propagate_natural_height=True,
@@ -398,13 +417,38 @@ class Conversation(Gtk.Box):
         return content
 
     def queue_scroll_bottom(self):
-        if self._scroll_idle is None:
+        if (self._follow_bottom or self._scroll_layout) and self._scroll_idle is None:
             self._scroll_idle = GLib.idle_add(self.scroll_bottom)
+
+    def user_scroll(self, controller, dx, dy):
+        if dy < 0:
+            self._follow_bottom = False
+        elif dy > 0:
+            adjustment = self.scroll.get_vadjustment()
+            if adjustment.get_upper() - adjustment.get_page_size() - adjustment.get_value() <= 2:
+                self._follow_bottom = True
+                self.queue_scroll_bottom()
+        return False
+
+    def scroll_layout_changed(self, adjustment):
+        self._scroll_layout = True
+        self.queue_scroll_bottom()
+
+    def scroll_position_changed(self, adjustment):
+        if not self._scroll_setting and not self._scroll_layout:
+            bottom = max(0, adjustment.get_upper() - adjustment.get_page_size())
+            self._follow_bottom = bottom - adjustment.get_value() <= 2
 
     def scroll_bottom(self):
         self._scroll_idle = None
         adjustment = self.scroll.get_vadjustment()
-        adjustment.set_value(max(0, adjustment.get_upper() - adjustment.get_page_size()))
+        self._scroll_setting = True
+        try:
+            if self._follow_bottom:
+                adjustment.set_value(max(0, adjustment.get_upper() - adjustment.get_page_size()))
+        finally:
+            self._scroll_setting = False
+            self._scroll_layout = False
         return False
 
     def event(self, kind, data):
@@ -448,6 +492,7 @@ class Conversation(Gtk.Box):
                 self.status.set_text(data["message"])
             else:
                 self.model_status.set_text("モデル一覧を取得できませんでした: " + data["message"] + " 新しいタブでお試しください。")
+                self.status.set_text(self.model_status.get_text())
         elif kind == "thread":
             self.update_model_controls()
         elif kind == "user":
@@ -502,7 +547,7 @@ class Conversation(Gtk.Box):
             self.messages.clear()
             for request_id in list(self.requests):
                 self.remove_request(request_id)
-            self.status.set_text("")
+            self.status.set_text(random.choice(STARTUP_TIPS))
             self.update_model_controls()
             self.focus_input()
 

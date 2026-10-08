@@ -7,7 +7,7 @@ import time
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from errand.ui import Application, Adw, Gdk, Gio, GLib, Gtk
+from errand.ui import Application, Adw, Gdk, Gio, GLib, Gtk, STARTUP_TIPS
 from errand.markdown_widget import CodeBlock, TableBlock
 from errand.math_widget import MathBlock
 from errand.markdown_widget import MarkdownView
@@ -30,6 +30,9 @@ def tick():
         if stage == 0:
             if window.models_loading or not window.model_entries:
                 return True
+            assert window.status.get_text() in STARTUP_TIPS
+            assert window.status.get_visible()
+            assert window.input.get_parent().get_tooltip_text() is None
             window.input.grab_focus()
             if not window.input.has_focus():
                 return True
@@ -210,6 +213,26 @@ def tick():
             adjustment.set_value(adjustment.get_value() - 30)
             stage = 12
         elif stage == 12:
+            adjustment = window.scroll.get_vadjustment()
+            assert abs(adjustment.get_value() - (adjustment.get_upper() - adjustment.get_page_size())) < 1
+            window.scroll_controller.emit("scroll", 0., -1.)
+            adjustment.set_value(adjustment.get_value() - 100)
+            tab_checks["reading_position"] = adjustment.get_value()
+            content = window.messages["scroll-test"]
+            window.event("assistant", {"item_id": "scroll-test", "text": content.get_source() + "\n追加の回答\n" * 20})
+            stage = 24
+        elif stage == 24:
+            if window._scroll_idle is not None:
+                return True
+            adjustment = window.scroll.get_vadjustment()
+            assert not window._follow_bottom
+            assert abs(adjustment.get_value() - tab_checks["reading_position"]) < 1
+            adjustment.set_value(adjustment.get_upper() - adjustment.get_page_size())
+            assert window._follow_bottom
+            content = window.messages["scroll-test"]
+            window.event("assistant", {"item_id": "scroll-test", "text": content.get_source() + "\n再追従\n" * 10})
+            stage = 26
+        elif stage == 26:
             adjustment = window.scroll.get_vadjustment()
             assert abs(adjustment.get_value() - (adjustment.get_upper() - adjustment.get_page_size())) < 1
             assert not window.stop.get_visible()

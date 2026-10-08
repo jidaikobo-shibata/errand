@@ -1,6 +1,7 @@
 # Errand
 
-GNOMEのトップバーから、Codexに小さな仕事を頼むためのチャットアプリです。
+Codexに小さな仕事を頼むためのGTKチャットアプリです。
+LinuxではGNOMEのトップバーから、macOSではアプリとして起動できます。
 翻訳、言葉の相談、計算、ローカルファイルの確認や加工などを、数回の会話で依頼できます。
 Codex CLIの `app-server` に接続し、既存のログインと設定を利用します。
 
@@ -16,7 +17,7 @@ Codex CLIの `app-server` に接続し、既存のログインと設定を利用
 
 ## 必要な環境
 
-- GNOME Shell 50（現在の対応バージョン）
+- Linuxのトップバー連携にはGNOME Shell 50（現在の対応バージョン）
 - Python 3、PyGObject、GTK 4、libadwaita、PyCairo、PangoCairo
 - `app-server` に対応するCodex CLIと、利用するモデルの認証
 
@@ -42,21 +43,28 @@ python3 app.py --codex /absolute/path/to/codex
 codex login
 ```
 
-GNOME拡張の配布ZIPを生成するには、リポジトリのルートで実行します。
+GNOME拡張のZIPを入手したら、Terminalでインストールします。
+以下のパスは、ダウンロードしたZIPの場所に置き換えてください。
+ソースから生成する手順は [開発ガイド](CONTRIBUTING.md) にあります。
 
 ```bash
-python3 scripts/build.py
-```
-
-生成されたZIPをインストールします。既存の開発用チェックアウトを上書きしないよう、
-開発中はそのディレクトリへ再インストールしないでください。
-
-```bash
-gnome-extensions install dist/errand@jidaikobo.shibata.zip
+gnome-extensions install /path/to/errand@jidaikobo.shibata.zip
 ```
 
 Waylandではログアウトしてログインし直し、ExtensionsまたはExtension Managerから有効化します。
 拡張の設定画面では、起動ショートカットとCodex実行ファイルの場所を変更できます。
+
+## macOS（実機検証待ち）
+
+現在はソースからアプリを生成する検証版です。
+生成と実行環境の準備は [開発ガイド](CONTRIBUTING.md#macosのアプリ生成と実機検証) を参照してください。
+Codex CLIのインストール・ログインに加え、HomebrewのGTK実行環境が必要です。
+署名・公証済みの配布版ではなく、ErrandとしてのmacOS実機動作はまだ確認していません。
+
+生成した `Errand.app` はFinderから開けます。
+macOSではCtrlに加えて⌘+Enterで送信、⌘+Tでタブ作成、⌘+Wでタブを閉じ、
+⌘+Qまたはアプリメニューから終了できます。
+メニューバー常駐やグローバルショートカットは未実装です。
 
 ## 操作
 
@@ -108,28 +116,13 @@ HTMLや外部画像は実行・自動取得しません。
 行列、独自マクロ、表セル内の数式などは未対応です。
 描画できない数式は元の記法を表示します。
 
-## 開発と検証
+開発・ビルド・テストについては [開発ガイド](CONTRIBUTING.md) を参照してください。
 
-モデルに接続しない自動テスト:
+## ライセンス
 
-```bash
-python3 -m unittest discover -s tests -v
-```
+Errand本体は [MIT License](LICENSE) で公開します。
+Codexを利用して開発しています。
 
-独立したGTK画面と疑似サーバーを使う操作検証:
-
-```bash
-env GSETTINGS_BACKEND=memory python3 scripts/ui_smoke.py
-```
-
-ショートカット設定画面の検証:
-
-```bash
-env GSETTINGS_BACKEND=memory gjs -m scripts/shortcut_smoke.js
-```
-
-Pythonの変更はアプリ終了・再起動で反映します。
-拡張本体や設定画面の変更は、Waylandではログアウト・ログインで反映してください。
-
-プロトコルの詳細は [Codex App Serverドキュメント](https://learn.chatgpt.com/docs/app-server)、
-GNOME拡張については [GJSガイド](https://gjs.guide/extensions/) を参照してください。
+GTK、libadwaita、PyGObject、GLib、Pango、PyCairoなどの依存ライブラリには、
+それぞれのライセンスが適用されます。本体のMITライセンスに置き換わるものではありません。
+現在の配布物にはこれらのライブラリ本体やCodex本体を同梱しません。

@@ -16,7 +16,7 @@ class RpcError(RuntimeError):
 
 
 def find_codex(explicit=None):
-    """GNOME does not normally inherit the terminal's nvm PATH."""
+    """Desktop launchers do not normally inherit the terminal's PATH."""
     if explicit:
         path = Path(explicit).expanduser()
         if not path.is_absolute() or not path.is_file() or not os.access(path, os.X_OK):
@@ -25,6 +25,10 @@ def find_codex(explicit=None):
     found = shutil.which("codex")
     if found:
         return found
+    for directory in ("/opt/homebrew/bin", "/usr/local/bin"):
+        candidate = Path(directory) / "codex"
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
     candidates = list((Path.home() / ".nvm/versions/node").glob("*/bin/codex"))
 
     def version(path):

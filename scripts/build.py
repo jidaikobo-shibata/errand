@@ -17,7 +17,7 @@ subprocess.run(["glib-compile-schemas", "--strict", str(root / "schemas")], chec
 # Fresh staging prevents old builds from contributing removed files or private notes.
 with tempfile.TemporaryDirectory(prefix="errand-build-") as staging:
     bundle = Path(staging)
-    for name in ("metadata.json", "extension.js", "prefs.js", "shortcutPreferences.js", "app.py"):
+    for name in ("metadata.json", "extension.js", "prefs.js", "shortcutPreferences.js", "app.py", "LICENSE"):
         shutil.copy2(root / name, bundle / name)
     shutil.copytree(root / "schemas", bundle / "schemas")
     shutil.copytree(root / "errand", bundle / "errand",

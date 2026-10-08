@@ -111,7 +111,14 @@ class Conversation(Gtk.Box):
         self.status = status_label(random.choice(STARTUP_TIPS))
         self.status.add_css_class("errand-status")
         self.status.update_property([Gtk.AccessibleProperty.LABEL], ["実行状況"])
-        body.append(self.status)
+        self.status_scroll = Gtk.ScrolledWindow(
+            max_content_height=160, propagate_natural_height=True,
+            hscrollbar_policy=Gtk.PolicyType.NEVER,
+            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC)
+        self.status_scroll.set_child(self.status)
+        self.status_scroll.set_visible(self.status.get_visible())
+        self.status.connect("notify::visible", lambda item, _: self.status_scroll.set_visible(item.get_visible()))
+        body.append(self.status_scroll)
         input_scroll = Gtk.ScrolledWindow(min_content_height=100, max_content_height=140)
         input_scroll.add_css_class("errand-input")
         self.input_css = Gtk.CssProvider()
@@ -728,7 +735,10 @@ class Window(Adw.ApplicationWindow):
                 self.current.model_popover.popdown()
                 return True
         modifiers = state & Gtk.accelerator_get_default_mod_mask()
-        if modifiers == Gdk.ModifierType.CONTROL_MASK and self.close_dialog is None:
+        shortcut_modifiers = {Gdk.ModifierType.CONTROL_MASK}
+        if sys.platform == "darwin":
+            shortcut_modifiers.add(Gdk.ModifierType.META_MASK)
+        if modifiers in shortcut_modifiers and self.close_dialog is None:
             if self.current and self.current.input.has_focus() and keyval in (
                     Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Home, Gdk.KEY_End):
                 view = self.current.input
@@ -748,7 +758,7 @@ class Window(Adw.ApplicationWindow):
                 if page:
                     self.tabs.close_page(page)
                 return True
-        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and state & Gdk.ModifierType.CONTROL_MASK:
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and modifiers in shortcut_modifiers:
             if self.current and self.close_dialog is None:
                 self.current.send(None)
             return True
@@ -830,11 +840,22 @@ class Application(Adw.Application):
     def __init__(self, codex=None, smoke=False, isolated=False, command=None):
         flags = Gio.ApplicationFlags.NON_UNIQUE if smoke or isolated else Gio.ApplicationFlags.DEFAULT_FLAGS
         super().__init__(application_id="jp.jidaikobo.Errand", flags=flags)
+        GLib.set_application_name("Errand")
         self.codex, self.smoke = codex, smoke
         self.command = command
         self.window = None
         self.connect("activate", self.activate_window)
         self.connect("shutdown", self.shutdown_session)
+        if sys.platform == "darwin":
+            action = Gio.SimpleAction.new("quit", None)
+            action.connect("activate", lambda *_: self.window.quit_application() if self.window else self.quit())
+            self.add_action(action)
+            self.set_accels_for_action("app.quit", ["<Meta>q"])
+            menu = Gio.Menu()
+            application_menu = Gio.Menu()
+            application_menu.append("Errandを終了", "app.quit")
+            menu.append_submenu("Errand", application_menu)
+            self.set_menubar(menu)
 
     def activate_window(self, _):
         if self.window is None:
@@ -855,5 +876,5 @@ def main():
     parser.add_argument("--smoke-test", action="store_true", help="表示後に終了（Codexへは接続しない）")
     args = parser.parse_args()
     if not Gtk.init_check():
-        parser.exit(1, "GNOMEの画面へ接続できません。デスクトップのTerminalから起動してください。\n")
+        parser.exit(1, "画面へ接続できません。デスクトップのTerminalから起動してください。\n")
     return Application(args.codex, args.smoke_test).run([sys.argv[0]])

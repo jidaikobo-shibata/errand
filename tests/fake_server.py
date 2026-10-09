@@ -5,6 +5,7 @@ import sys
 turn = 0
 pending = None
 thread_params = {}
+signed_in = "--signed-out" not in sys.argv
 
 def model(name, efforts, default, **extra):
     return {"id": "picker-" + name, "model": name, "displayName": name.title(),
@@ -29,8 +30,16 @@ for line in sys.stdin:
     if method == "initialize":
         reply(message, {"userAgent": "fake"})
     elif method == "account/read":
-        reply(message, {"account": None if "--signed-out" in sys.argv or "--no-auth-needed" in sys.argv else {"type": "chatgpt"},
+        reply(message, {"account": None if not signed_in or "--no-auth-needed" in sys.argv else {"type": "chatgpt"},
                         "requiresOpenaiAuth": "--no-auth-needed" not in sys.argv})
+    elif method == "account/login/start":
+        url = "https://auth.openai.com/oauth/authorize?test=true"
+        if "--unsafe-login" in sys.argv:
+            url = "https://example.com/login"
+        reply(message, {"type": "chatgpt", "loginId": "login-test", "authUrl": url})
+        if "--wait-login" not in sys.argv:
+            signed_in = True
+            event("account/login/completed", loginId="login-test", success=True, error=None)
     elif method == "model/list":
         if "--fail-models" in sys.argv:
             send({"id": message["id"], "error": {"code": -32000, "message": "catalogue unavailable"}})

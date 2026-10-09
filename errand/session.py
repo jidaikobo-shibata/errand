@@ -1,10 +1,11 @@
 """UI-independent conversation state and safe defaults for small errands."""
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 import tempfile
 import threading
+import time
 
-from .protocol import AppServer, RpcError, find_codex, server_command
+from .protocol import AppServer, CodexMissing, RpcError, find_codex, server_command
 
 
 INSTRUCTIONS = """あなたは小仕事を手伝うアシスタントです。日本語で簡潔に回答してください。
@@ -40,7 +41,7 @@ class LoginRequired(RpcError):
     pass
 
 
-LOGIN_GUIDANCE = "Codexにログインしてください。Terminalで codex login を実行し、ログイン後にErrandを再起動してください。"
+LOGIN_GUIDANCE = "ChatGPTにログインして使い始めてください。「ChatGPTにログイン」を押すとブラウザが開きます。"
 
 
 class Session:
@@ -100,6 +101,7 @@ class Session:
 
     def _load_models(self):
         server = None
+        initialized = False
         try:
             command = self.command or server_command(find_codex(self.codex))
             server = AppServer(command, self._scratch.name, lambda _: None,
@@ -110,6 +112,7 @@ class Session:
                 self._catalogue_server = server
             server.start()
             self._initialize(server)
+            initialized = True
             account = server.request("account/read", {"refreshToken": False}).result(timeout=30)
             if account.get("requiresOpenaiAuth") is True and account.get("account") is None:
                 raise LoginRequired(LOGIN_GUIDANCE)
@@ -159,7 +162,8 @@ class Session:
                 self._emit("models", models=models, default_model=default_model, default_effort=default_effort)
         except Exception as error:
             if not self._closed:
-                self._emit("models_error", message=str(error), login_required=isinstance(error, LoginRequired))
+                self._emit("models_error", message=str(error), login_required=isinstance(error, LoginRequired),
+                           setup_required=isinstance(error, CodexMissing) or not initialized)
         finally:
             if server:
                 server.close()
@@ -170,11 +174,27 @@ class Session:
             self._emit("models_state", loading=False)
 
     @staticmethod
-    def _initialize(server):
-        server.request("initialize", {
+    def _initialize(server, timeout=30, cancel=None):
+        pending = server.request("initialize", {
             "clientInfo": {"name": "jidaikobo_errand", "title": "Errand", "version": "0.1.0"},
             "capabilities": {"experimentalApi": False},
-        }).result(timeout=30)
+        })
+        if cancel is None:
+            pending.result(timeout=timeout)
+        else:
+            deadline = time.monotonic() + timeout
+            while True:
+                if cancel.is_set():
+                    raise CancelledError()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError()
+                try:
+                    pending.result(timeout=min(.2, remaining))
+                    break
+                except TimeoutError:
+                    if pending.done():
+                        raise
         server.notify("initialized")
 
     def send(self, text, model=None, effort=None):

@@ -21,6 +21,9 @@ Codex CLIの `app-server` に接続し、既存のログインと設定を利用
 - Python 3、PyGObject、GTK 4、libadwaita、PyCairo、PangoCairo
 - `app-server` に対応するCodex CLIと、利用するモデルの認証
 
+macOSの試用版はPython・GTKを同梱し、Codexは必要な場合だけ初回にアプリから取得します。
+macOS 15以降と、ご自身のCodexを利用できるChatGPTアカウントが必要です。
+
 数式描画にTeX環境は不要です。ファイルを扱う際に必要なツールは依頼内容により異なります。
 
 ## 起動とインストール
@@ -37,11 +40,8 @@ Codexが見つからない場合は、実行ファイルを指定してくださ
 python3 app.py --codex /absolute/path/to/codex
 ```
 
-未ログインの場合は、TerminalでログインしてからErrandを再起動します。
-
-```bash
-codex login
-```
+未ログインの場合は、アプリの「ChatGPTにログイン」からブラウザでログインできます。
+既存のCodexログインは引き続き利用します。
 
 GNOME拡張のZIPを入手したら、Terminalでインストールします。
 以下のパスは、ダウンロードしたZIPの場所に置き換えてください。
@@ -54,12 +54,28 @@ gnome-extensions install /path/to/errand@jidaikobo.shibata.zip
 Waylandではログアウトしてログインし直し、ExtensionsまたはExtension Managerから有効化します。
 拡張の設定画面では、起動ショートカットとCodex実行ファイルの場所を変更できます。
 
-## macOS（実機検証待ち）
+## macOSの試用版
 
-現在はソースからアプリを生成する検証版です。
-生成と実行環境の準備は [開発ガイド](CONTRIBUTING.md#macosのアプリ生成と実機検証) を参照してください。
-Codex CLIのインストール・ログインに加え、HomebrewのGTK実行環境が必要です。
-署名・公証済みの配布版ではなく、ErrandとしてのmacOS実機動作はまだ確認していません。
+配布用ZIPはPython・GTKを同梱します。受け取った人がTerminalやHomebrewで
+環境を準備する必要はありません。Apple Silicon版とIntel版を別々のZIPとして生成します。
+ZIPを展開し、`Errand.app` を「アプリケーション」へ移して起動してください。
+「動作環境を準備する」が表示されたら、そのボタンで必要なCodexを取得・検証します。
+取得中の進捗、中止、失敗後の再試行に対応します。既存のCodexが使える場合は取得を省略します。
+未ログインなら、アプリの「ChatGPTにログイン」からブラウザでログインします。
+
+Appleによる公証を受けていない試用版のため、初回の警告と許可手順を含む
+[導入案内](distribution/START_HERE.html) をZIPに添えます。
+配布者用の [Slack向けの案内文](distribution/SLACK_MESSAGE.txt) は試用ZIPの外に用意しています。
+動作確認の報告テンプレートは導入案内に含めています。
+依存の対応ソースと再ビルド用ファイルは、試用ZIPと同じ配布場所にある別の対応ソースZIPに収録します。
+試用ZIPは `Errand-Trial-AppleSilicon.zip` と `Errand-Trial-Intel.zip`、
+対応ソースは `Errand-Sources-AppleSilicon.zip` と `Errand-Sources-Intel.zip` の計4ファイルです。
+試用者は自分のMacに合うTrial ZIPだけを展開します。
+対応ソースは別の保存先へ置き、アプリの配布投稿に取得リンクを載せる形でも提供できます。
+公開された配布先はまだありません。
+
+開発用のソース版は引き続きHomebrewに依存します。同梱版とソース版の生成方法は
+[開発ガイド](CONTRIBUTING.md) を参照してください。
 
 生成した `Errand.app` はFinderから開けます。
 macOSではCtrlに加えて⌘+Enterで送信、⌘+Tでタブ作成、⌘+Wでタブを閉じ、
@@ -167,4 +183,5 @@ Codexを利用して開発しています。
 
 GTK、libadwaita、PyGObject、GLib、Pango、PyCairoなどの依存ライブラリには、
 それぞれのライセンスが適用されます。本体のMITライセンスに置き換わるものではありません。
-現在の配布物にはこれらのライブラリ本体やCodex本体を同梱しません。
+macOS試用版はPython・GTKなどを同梱し、ライセンス・通知と対応ソースを提供します。
+Codex本体は初回準備時に公式配布物から取得します。

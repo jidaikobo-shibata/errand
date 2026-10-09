@@ -1,0 +1,31 @@
+Errand試用版のライセンスとソース
+
+Errand本体のソースはMIT Licenseです。対応ソースZIP内のSources/errand/LICENSEを参照してください。
+Python、GTK、libadwaita、GLib、Pango、Cairo、PyGObject、PyCairo、Codex、
+および間接依存には、それぞれのライセンスが適用されます。
+本体のMIT Licenseで置き換えるものではありません。
+
+Licenses/：各コンポーネントのライセンス・通知・ビルド用Homebrewレシピ。
+対応ソースZIPのSources/：同梱コンポーネントのソースアーカイブとErrandのソース・ビルド手順。
+BUILD_INFO.json：同梱したバージョン、ソースURL、検証したSHA-256と対応CPU。
+アプリ内のContents/Resources/Licensesにもライセンスの写しがあります。
+配布者は試用ZIPと同じ投稿・配布場所に対応ソースZIPを用意してください。
+
+GTK等の共有ライブラリはアプリのContents/Frameworks内に分離して置いてあります。
+これらのライブラリの変更や、その変更を調べるためのリバースエンジニアリングを制限しません。
+ライブラリを差し替える場合は、同じCPUとABIのライブラリを使用してください。
+バンドル内を変更すると署名が無効になるため、ご自身で再ビルド・再署名が必要です。
+Sources/errand/scripts/build_macos_release.pyとビルド手順を利用できます。
+
+Cairoのスクリプト描画ライブラリは、不要なLZO圧縮依存を使わない構成でビルドします。
+ソースアーカイブは配布元と同じバージョンです。
+パッチ適用・ビルド設定は同梱レシピとErrandのビルドスクリプトを参照してください。
+
+PyInstallerには、生成したアプリの配布に関するbootloader exceptionがあります。
+正確な条件はLicenses/PyInstallerの原文を参照してください。
+CodexのApache LicenseとNOTICEはLicenses/Codexにあります。
+Codex本体は初回準備時に公式配布物を取得します。リリースとSHA-256を固定し、
+CPUごとの公式パッケージ全体を検証して利用します。同梱するマニフェストに取得先を記載しています。
+
+これらのファイルには配布者の認証情報・アカウント設定・作業記録を含めません。
+ご利用時のCodex認証は、受け取った方のMacでCodexが管理します。

@@ -7,11 +7,16 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 
 
 class RpcError(RuntimeError):
+    pass
+
+
+class CodexMissing(RpcError):
     pass
 
 
@@ -22,11 +27,19 @@ def find_codex(explicit=None):
         if not path.is_absolute() or not path.is_file() or not os.access(path, os.X_OK):
             raise RpcError("Codexの実行ファイルを絶対パスで指定してください。")
         return str(path)
+    from .runtime import managed_codex
+    prepared = managed_codex()
+    if prepared:
+        return prepared
     found = shutil.which("codex")
     if found:
         return found
-    for directory in ("/opt/homebrew/bin", "/usr/local/bin"):
-        candidate = Path(directory) / "codex"
+    candidates = [Path.home() / '.local/bin/codex', Path('/opt/homebrew/bin/codex'),
+                  Path('/usr/local/bin/codex')]
+    if sys.platform == 'darwin':
+        for parent in (Path('/Applications'), Path.home() / 'Applications'):
+            candidates.append(parent / 'Codex.app/Contents/Resources/codex')
+    for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)
     candidates = list((Path.home() / ".nvm/versions/node").glob("*/bin/codex"))
@@ -40,7 +53,7 @@ def find_codex(explicit=None):
     for candidate in sorted(candidates, key=version, reverse=True):
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)
-    raise RpcError("Codexが見つかりません。設定で実行ファイルを指定してください。")
+    raise CodexMissing("Errandの動作環境を準備してください。")
 
 
 def server_command(codex):

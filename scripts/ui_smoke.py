@@ -346,6 +346,8 @@ def tick():
             assert app.window.get_width() <= 680
             assert table.get_width() <= window.scroll.get_width()
             user_box = window.history.get_first_child()
+            if user_box.has_css_class("errand-message-row"):
+                user_box = user_box.get_child()
             assert user_box.get_width() <= window.scroll.get_width()
             assert user_box.get_last_child().get_wrap_mode().value_nick == "word-char"
             assert user_box.get_last_child().get_layout().get_line_count() > 1

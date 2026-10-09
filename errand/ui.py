@@ -55,6 +55,10 @@ class Conversation(Gtk.Box):
         self.closed = False
         self.topic = "新しいお願い"
         self.messages = {}
+        self.message_widgets = []
+        self._navigation_index = None
+        self._highlight_widget = None
+        self._highlight_timeout = None
         self.requests = {}
         self.attachments = {}
         self.pending_submission = None
@@ -116,15 +120,52 @@ class Conversation(Gtk.Box):
         self.status_scroll = Gtk.ScrolledWindow(
             max_content_height=160, propagate_natural_height=True,
             hscrollbar_policy=Gtk.PolicyType.NEVER,
-            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC)
+            vscrollbar_policy=Gtk.PolicyType.NEVER)
         self.status_scroll.set_child(self.status)
         self.status_scroll.set_visible(self.status.get_visible())
         self.status.connect("notify::visible", lambda item, _: self.status_scroll.set_visible(item.get_visible()))
-        body.append(self.status_scroll)
+        self.status.connect("notify::label", lambda *_: self.update_status_size())
+        status_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        body.append(status_area)
+        navigation = Gtk.Box(spacing=4, halign=Gtk.Align.CENTER)
+        navigation.add_css_class("errand-navigation")
+        self.navigation_buttons = {}
+        for action, title in (("first", "最初の発言へ"), ("previous", "前の発言へ"),
+                              ("next", "次の発言へ"), ("latest", "最新へ移動して自動追従")):
+            button = Gtk.Button(tooltip_text=title, sensitive=False)
+            button.add_css_class("flat")
+            button.update_property([Gtk.AccessibleProperty.LABEL], [title])
+            icon = Gtk.DrawingArea(width_request=16, height_request=16)
+            def draw_arrow(widget, context, width, height, direction=action):
+                color = widget.get_color()
+                context.set_source_rgba(color.red, color.green, color.blue, color.alpha)
+                context.set_line_width(1.5)
+                upward = direction in {"first", "previous"}
+                # Two concentric chevrons, like a rotated 《 / 》, share one footprint.
+                offsets = (0, 4) if direction in {"first", "latest"} else (2,)
+                for offset in offsets:
+                    edge = 11 - offset if upward else 5 + offset
+                    tip = edge - 5 if upward else edge + 5
+                    context.move_to(3, edge)
+                    context.line_to(width / 2, tip)
+                    context.line_to(width - 3, edge)
+                context.stroke()
+            icon.set_draw_func(draw_arrow)
+            button.set_child(icon)
+            button.connect("clicked", lambda _, direction=action: self.navigate_messages(direction))
+            navigation.append(button)
+            self.navigation_buttons[action] = button
+        status_area.append(navigation)
+        status_area.append(self.status_scroll)
         input_scroll = Gtk.ScrolledWindow(min_content_height=100, max_content_height=140)
         input_scroll.add_css_class("errand-input")
         self.input_css = Gtk.CssProvider()
         self.input_css.load_from_data(b"""
+            .errand-navigation button {
+                min-height: 20px;
+                min-width: 24px;
+                padding: 2px 4px;
+            }
             .errand-table-cell {
                 padding: 8px;
                 border-bottom: 1px solid alpha(@window_fg_color, 0.15);
@@ -157,7 +198,7 @@ class Conversation(Gtk.Box):
                 background-color: alpha(@window_fg_color, 0.05);
                 border-left: 3px solid alpha(@window_fg_color, 0.25);
                 border-radius: 4px;
-                padding: 6px 10px;
+                padding: 3px 10px;
                 font-size: 0.9em;
             }
             .errand-input {
@@ -226,6 +267,7 @@ class Conversation(Gtk.Box):
 
     def close(self):
         self.closed = True
+        self.clear_navigation_highlight()
         if self._scroll_idle is not None:
             GLib.source_remove(self._scroll_idle)
             self._scroll_idle = None
@@ -421,9 +463,106 @@ class Conversation(Gtk.Box):
         if markdown:
             content.connect("rendered", lambda *_: self.queue_scroll_bottom())
         box.append(content)
-        self.history.append(box)
+        if heading in {"あなた", "Codex"}:
+            row = Gtk.Overlay()
+            row.add_css_class("errand-message-row")
+            row.set_child(box)
+            self.history.append(row)
+            self.message_widgets.append(row)
+        else:
+            self.history.append(box)
         self.queue_scroll_bottom()
+        self.update_navigation()
         return content
+
+    def message_positions(self):
+        positions = []
+        for widget in self.message_widgets:
+            valid, bounds = widget.compute_bounds(self.history)
+            positions.append(bounds.get_y() if valid else 0)
+        return positions
+
+    def update_status_size(self):
+        width = self.status_scroll.get_width() or max(200, self.owner.get_width() - 32)
+        _, natural, _, _ = self.status.measure(Gtk.Orientation.VERTICAL, width)
+        policy = Gtk.PolicyType.AUTOMATIC if natural > 160 else Gtk.PolicyType.NEVER
+        self.status_scroll.set_policy(Gtk.PolicyType.NEVER, policy)
+
+    def navigation_index(self):
+        if not self.message_widgets:
+            return None
+        if self._navigation_index is not None:
+            return min(self._navigation_index, len(self.message_widgets) - 1)
+        if self._follow_bottom:
+            return len(self.message_widgets) - 1
+        value = self.scroll.get_vadjustment().get_value()
+        return max((index for index, y in enumerate(self.message_positions()) if y <= value + 2), default=0)
+
+    def update_navigation(self):
+        if not hasattr(self, "navigation_buttons"):
+            return
+        index = self.navigation_index()
+        adjustment = self.scroll.get_vadjustment()
+        at_bottom = adjustment.get_upper() - adjustment.get_page_size() - adjustment.get_value() <= 2
+        enabled = {"first": index is not None and (index > 0 or adjustment.get_value() > 2),
+                   "previous": index is not None and index > 0,
+                   "next": index is not None and index < len(self.message_widgets) - 1,
+                   "latest": index is not None and (not self._follow_bottom or not at_bottom)}
+        for action, button in self.navigation_buttons.items():
+            button.set_sensitive(enabled[action])
+
+    def navigate_messages(self, action):
+        index = self.navigation_index()
+        if index is None:
+            return
+        if action == "latest":
+            self.highlight_message(len(self.message_widgets) - 1)
+            self._navigation_index = None
+            self._follow_bottom = True
+            self.queue_scroll_bottom()
+            self.update_navigation()
+            return
+        target = 0 if action == "first" else max(0, min(len(self.message_widgets) - 1,
+                                                       index + (-1 if action == "previous" else 1)))
+        self._follow_bottom = False
+        self._navigation_index = target
+        self._scroll_setting = True
+        try:
+            adjustment = self.scroll.get_vadjustment()
+            bottom = max(0, adjustment.get_upper() - adjustment.get_page_size())
+            adjustment.set_value(min(bottom, self.message_positions()[target]))
+        finally:
+            self._scroll_setting = False
+        self.highlight_message(target)
+        self.update_navigation()
+
+    def clear_navigation_highlight(self):
+        if self._highlight_timeout is not None:
+            GLib.source_remove(self._highlight_timeout)
+            self._highlight_timeout = None
+        if self._highlight_widget is not None:
+            self._highlight_widget.set_opacity(1)
+            self._highlight_widget.remove_css_class("errand-navigation-target")
+            self._highlight_widget = None
+
+    def highlight_message(self, index):
+        self.clear_navigation_highlight()
+        self._highlight_widget = self.message_widgets[index]
+        self._highlight_widget.add_css_class("errand-navigation-target")
+        self._highlight_widget.set_opacity(.5)
+        started = GLib.get_monotonic_time()
+        def restore():
+            elapsed = GLib.get_monotonic_time() - started
+            # Hold the cue long enough to see it after the scroll has rendered.
+            progress = max(0, min(1, (elapsed - 200_000) / 600_000))
+            if progress >= 1:
+                self._highlight_timeout = None
+                self.clear_navigation_highlight()
+                return False
+            eased = progress * progress * (3 - 2 * progress)
+            self._highlight_widget.set_opacity(.5 + .5 * eased)
+            return True
+        self._highlight_timeout = GLib.timeout_add(16, restore)
 
     def queue_scroll_bottom(self):
         if (self._follow_bottom or self._scroll_layout) and self._scroll_idle is None:
@@ -432,7 +571,8 @@ class Conversation(Gtk.Box):
     def user_scroll(self, controller, dx, dy):
         if dy < 0:
             self._follow_bottom = False
-        elif dy > 0:
+        self._navigation_index = None
+        if dy > 0:
             adjustment = self.scroll.get_vadjustment()
             if adjustment.get_upper() - adjustment.get_page_size() - adjustment.get_value() <= 2:
                 self._follow_bottom = True
@@ -440,13 +580,16 @@ class Conversation(Gtk.Box):
         return False
 
     def scroll_layout_changed(self, adjustment):
+        self.update_status_size()
         self._scroll_layout = True
         self.queue_scroll_bottom()
 
     def scroll_position_changed(self, adjustment):
         if not self._scroll_setting and not self._scroll_layout:
+            self._navigation_index = None
             bottom = max(0, adjustment.get_upper() - adjustment.get_page_size())
             self._follow_bottom = bottom - adjustment.get_value() <= 2
+        self.update_navigation()
 
     def scroll_bottom(self):
         self._scroll_idle = None
@@ -458,6 +601,7 @@ class Conversation(Gtk.Box):
         finally:
             self._scroll_setting = False
             self._scroll_layout = False
+        self.update_navigation()
         return False
 
     def event(self, kind, data):
@@ -548,12 +692,16 @@ class Conversation(Gtk.Box):
             for request_id in list(self.requests):
                 self.remove_request(request_id)
         elif kind == "reset":
+            self.clear_navigation_highlight()
+            self.message_widgets.clear()
+            self._navigation_index = None
             self.pending_submission = None
             self.clear_attachments()
             self.focus_input()
             while (child := self.history.get_first_child()) is not None:
                 self.history.remove(child)
             self.messages.clear()
+            self.update_navigation()
             for request_id in list(self.requests):
                 self.remove_request(request_id)
             self.status.set_text(random.choice(STARTUP_TIPS))
@@ -642,7 +790,8 @@ class Conversation(Gtk.Box):
         texts = []
         child = self.history.get_first_child()
         while child:
-            heading = child.get_first_child()
+            message = child.get_child() if child.has_css_class("errand-message-row") else child
+            heading = message.get_first_child()
             content = heading.get_next_sibling()
             text = content.get_source() if isinstance(content, MarkdownView) else content.get_text()
             texts.append(heading.get_text() + "\n" + text)

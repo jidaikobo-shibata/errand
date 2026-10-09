@@ -421,6 +421,12 @@ class Conversation(Gtk.Box):
             paths = []
             for file in file_list.get_files():
                 path = file.get_path()
+                if path is None and sys.platform == "darwin":
+                    uri = file.get_uri()
+                    # GTK 4.22's macOS backend escapes the scheme's colon.
+                    # Correct that prefix only; let Gio decode the path once.
+                    if uri.startswith("file%3A///"):
+                        path = Gio.File.new_for_uri("file:" + uri[len("file%3A"):]).get_path()
                 if path is None or not Path(path).is_file():
                     raise ValueError("ローカルのファイルをドロップしてください。")
                 paths.append(str(Path(path).absolute()))

@@ -18,6 +18,8 @@ from .markdown_widget import MarkdownView
 from .preferences import Preferences, load_settings, mac_key
 from .settings import DEFAULTS, validate
 from .shortcuts import ACTIONS, bindings, key_signature, signature, validate_shortcuts
+from .bookmarks import Bookmarks
+from .bookmark_widget import BookmarkMenu
 
 
 STARTUP_TIPS = (
@@ -286,6 +288,8 @@ class Conversation(Gtk.Box):
         self.send_button.add_css_class("suggested-action")
         self.send_button.connect("clicked", self.send)
         row.append(self.send_button)
+        self.bookmark_button = BookmarkMenu(self)
+        row.append(self.bookmark_button)
         self.stop = Gtk.Button(label="中断", sensitive=False, visible=False)
         self.stop.connect("clicked", lambda _: self.session.interrupt())
         row.append(self.stop)
@@ -323,6 +327,7 @@ class Conversation(Gtk.Box):
         self.closed = True
         self.clear_navigation_highlight()
         self.app.runtime.unsubscribe(self.setup_event)
+        self.bookmark_button.menu.popdown()
         self.login.close()
         if self._scroll_idle is not None:
             GLib.source_remove(self._scroll_idle)
@@ -1065,6 +1070,9 @@ class Window(Adw.ApplicationWindow):
         return True
 
     def key(self, controller, keyval, keycode, state):
+        if self.current and self.current.bookmark_button.menu.get_visible() and keyval == Gdk.KEY_Escape:
+            self.current.bookmark_button.menu.popdown()
+            return True
         if self.current and self.current.conversation_popover.get_visible() and keyval == Gdk.KEY_Escape:
             self.current.conversation_popover.popdown()
             return True
@@ -1133,6 +1141,7 @@ class Window(Adw.ApplicationWindow):
         if not self.current:
             return
         for popover, button in ((self.current.model_popover, self.current.model_button),
+                                (self.current.bookmark_button.menu, self.current.bookmark_button),
                                 (self.current.conversation_popover, self.current.conversation_menu)):
             if not popover.get_visible():
                 continue
@@ -1211,6 +1220,7 @@ class Application(Adw.Application):
         super().__init__(application_id="jp.jidaikobo.Errand", flags=flags)
         GLib.set_application_name("Errand")
         self.settings = load_settings(isolated=isolated or smoke)
+        self.bookmarks = Bookmarks(self.settings.path.parent / 'bookmarks.json', isolated=isolated or smoke)
         codex = codex or self.settings.get("codex-path") or None
         self.codex, self.smoke = codex, smoke
         self.command = command

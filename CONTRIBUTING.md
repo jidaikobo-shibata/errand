@@ -177,6 +177,12 @@ glib-compile-schemas --strict schemas
 env GSETTINGS_BACKEND=memory python3 scripts/preferences_smoke.py
 ```
 
+定番のお願いの保存・呼び出し・編集・削除確認は、独立したWayland環境で実行してください。
+
+```bash
+env GSETTINGS_BACKEND=memory python3 scripts/bookmarks_smoke.py
+```
+
 ショートカットの変更・無効化・既定値への復帰と重複検出の検証:
 
 ```bash

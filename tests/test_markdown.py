@@ -9,6 +9,18 @@ def parsed(source):
 
 
 class MarkdownTests(unittest.TestCase):
+    def test_quote_groups_lines_and_preserves_paragraphs(self):
+        result = blocks("前文\n> **引用**\n> 続き\n>\n> 次の段落\n\n後文")
+        self.assertEqual([part.kind for part in result], ["text", "quote", "text"])
+        self.assertEqual(result[1].text, "**引用**\n続き\n\n次の段落\n")
+
+    def test_quote_contains_nested_quotes_and_literal_code(self):
+        quote = blocks("> 外側\n> > 内側\n> ```text\n> > コード内では引用ではない\n> ```")[0]
+        children = blocks(quote.text)
+        self.assertEqual([part.kind for part in children], ["text", "quote", "code"])
+        self.assertEqual(children[1].text, "内側\n")
+        self.assertEqual(children[2].text, "> コード内では引用ではない\n")
+
     def test_separate_code_blocks_preserve_their_own_content(self):
         result = blocks("前文\n```bash\n  echo '<b>&</b>'\n\n```\n中間\n~~~text\nsecond\n~~~\n後文")
         self.assertEqual([part.kind for part in result], ["text", "code", "text", "code", "text"])

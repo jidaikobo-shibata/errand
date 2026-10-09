@@ -125,6 +125,17 @@ def prose_blocks(source):
     result, prose = [], []
     index = 0
     while index < len(lines):
+        if re.match(r"^ {0,3}>", lines[index]):
+            if prose:
+                result.extend(math_blocks("".join(prose)))
+                prose = []
+            quoted = []
+            while index < len(lines) and (quote := re.match(r"^ {0,3}>[ \t]?(.*)$", lines[index].rstrip("\r\n"))):
+                ending = lines[index][len(lines[index].rstrip("\r\n")):]
+                quoted.append(quote[1] + ending)
+                index += 1
+            result.append(Block("quote", "".join(quoted)))
+            continue
         header = table_cells(lines[index])
         separators = table_cells(lines[index + 1]) if index + 1 < len(lines) else []
         if ("|" in lines[index] and len(header) == len(separators)

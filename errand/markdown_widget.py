@@ -85,11 +85,37 @@ class TableBlock(Gtk.Grid):
         return "\n".join(cell.get_label() for cell in self.cells)
 
 
+class QuoteBlock(Gtk.Box):
+    def __init__(self, block, depth):
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.add_css_class("errand-quote")
+        self.line = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        self.line.set_opacity(0.5)
+        self.append(self.line)
+        self.content = MarkdownView(depth=depth + 1)
+        self.content.set_hexpand(True)
+        self.append(self.content)
+        self.update(block)
+
+    def update(self, block):
+        if getattr(self, "block", None) == block:
+            return
+        self.block = block
+        self.content.set_source(block.text.rstrip("\r\n"), immediate=True)
+
+    def get_text(self):
+        return self.content.get_text()
+
+    def get_label(self):
+        return self.content.get_label()
+
+
 class MarkdownView(Gtk.Box):
     __gsignals__ = {"rendered": (GObject.SignalFlags.RUN_LAST, None, ())}
 
-    def __init__(self, source=""):
+    def __init__(self, source="", depth=0):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.depth = depth
         self._source = source
         self._pending = None
         self._parts = []
@@ -131,6 +157,8 @@ class MarkdownView(Gtk.Box):
                     part = TableBlock(block)
                 elif block.kind == "math":
                     part = MathBlock(block)
+                elif block.kind == "quote" and self.depth < 16:
+                    part = QuoteBlock(block, self.depth)
                 else:
                     part = Gtk.Label(xalign=0, wrap=True, selectable=True)
                     part.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
@@ -138,7 +166,7 @@ class MarkdownView(Gtk.Box):
                 self._parts.append(part)
                 self.append(part)
             part = self._parts[index]
-            if isinstance(part, (CodeBlock, TableBlock, MathBlock)):
+            if isinstance(part, (CodeBlock, TableBlock, MathBlock, QuoteBlock)):
                 part.update(block)
             else:
                 part.set_markup(render(block.text.rstrip("\r\n")))

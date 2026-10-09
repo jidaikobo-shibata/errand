@@ -62,6 +62,9 @@ class Conversation(Gtk.Box):
         self.requests = {}
         self.attachments = {}
         self.pending_submission = None
+        self.prompt_history = []
+        self._prompt_history_index = None
+        self._recalling_prompt = False
         self.session = Session(self.event, dispatch=GLib.idle_add, codex=codex, command=app.command)
         self.model_entries = []
         self.effort_values = [None]
@@ -219,6 +222,7 @@ class Conversation(Gtk.Box):
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), self.input_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.input = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False)
+        self.input.get_buffer().connect("changed", self.prompt_edited)
         self.input.update_property([Gtk.AccessibleProperty.LABEL, Gtk.AccessibleProperty.DESCRIPTION],
                                    ["お願い", STARTUP_TIPS[0]])
         input_focus = Gtk.EventControllerFocus()
@@ -279,6 +283,31 @@ class Conversation(Gtk.Box):
     def focus_input(self):
         if self.owner.current is self:
             self.input.grab_focus()
+
+    def prompt_edited(self, *_):
+        if not self._recalling_prompt:
+            self._prompt_history_index = None
+
+    def recall_prompt(self, direction):
+        buffer = self.input.get_buffer()
+        if not self.prompt_history or (self._prompt_history_index is None and buffer.get_char_count()):
+            return False
+        if self._prompt_history_index is None:
+            if direction > 0:
+                return False
+            index = len(self.prompt_history)
+        else:
+            index = self._prompt_history_index
+        index = max(0, min(len(self.prompt_history), index + direction))
+        self._recalling_prompt = True
+        try:
+            buffer.set_text(self.prompt_history[index] if index < len(self.prompt_history) else "")
+            buffer.place_cursor(buffer.get_end_iter())
+            self.input.scroll_mark_onscreen(buffer.get_insert())
+        finally:
+            self._recalling_prompt = False
+        self._prompt_history_index = index if index < len(self.prompt_history) else None
+        return True
 
     def drop_files(self, target, file_list, x, y):
         if self.closed:
@@ -612,6 +641,8 @@ class Conversation(Gtk.Box):
             if pending and pending[2] == data["text"]:
                 draft, attachments, _ = pending
                 self.pending_submission = None
+                self.prompt_history.append(draft)
+                self._prompt_history_index = None
                 buffer = self.input.get_buffer()
                 if buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False) == draft:
                     buffer.set_text("")
@@ -692,6 +723,8 @@ class Conversation(Gtk.Box):
             for request_id in list(self.requests):
                 self.remove_request(request_id)
         elif kind == "reset":
+            self.prompt_history.clear()
+            self._prompt_history_index = None
             self.clear_navigation_highlight()
             self.message_widgets.clear()
             self._navigation_index = None
@@ -902,6 +935,10 @@ class Window(Adw.ApplicationWindow):
                 self.current.model_popover.popdown()
                 return True
         modifiers = state & Gtk.accelerator_get_default_mod_mask()
+        if (not modifiers and self.close_dialog is None and self.current
+                and self.current.input.has_focus() and keyval in (Gdk.KEY_Up, Gdk.KEY_Down)):
+            if self.current.recall_prompt(-1 if keyval == Gdk.KEY_Up else 1):
+                return True
         shortcut_modifiers = {Gdk.ModifierType.CONTROL_MASK}
         if sys.platform == "darwin":
             shortcut_modifiers.add(Gdk.ModifierType.META_MASK)

@@ -3,7 +3,7 @@
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from errand.ui import Application, GLib
+from errand.ui import Application, GLib, Gdk
 
 root = Path(__file__).resolve().parent.parent
 app = Application(isolated=True, command=[sys.executable, str(root / 'tests/fake_server.py')])
@@ -28,21 +28,21 @@ def verify():
         assert navigation.get_next_sibling() is view.status_scroll
         assert view.navigation_index() == 7
         view.navigation_buttons['previous'].grab_focus()
-        view.navigation_buttons['previous'].emit('clicked')
+        assert app.window.key_controller.emit('key-pressed', Gdk.KEY_Up, 0, Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK)
         assert view.navigation_index() == 6
         assert view.message_widgets[6].has_css_class('errand-navigation-target')
         assert .45 <= view.message_widgets[6].get_opacity() <= .55
         assert not view.message_widgets[6].get_child().has_css_class('errand-navigation-target')
         assert view.navigation_buttons['previous'].has_focus()
         assert not view._follow_bottom
-        view.navigate_messages('first')
+        assert app.window.key_controller.emit('key-pressed', Gdk.KEY_Up, 0, Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SHIFT_MASK)
         assert view.navigation_index() == 0
         assert not view.message_widgets[6].has_css_class('errand-navigation-target')
         assert view.message_widgets[6].get_opacity() == 1
         assert view.message_widgets[0].has_css_class('errand-navigation-target')
         assert view.scroll.get_vadjustment().get_value() == 0
         assert not view.navigation_buttons['previous'].get_sensitive()
-        view.navigate_messages('next')
+        assert app.window.key_controller.emit('key-pressed', Gdk.KEY_Down, 0, Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK)
         assert view.navigation_index() == 1
         old_value = view.scroll.get_vadjustment().get_value()
         assert old_value > 0
@@ -51,12 +51,12 @@ def verify():
         assert view.navigation_index() == 1
         assert view.scroll.get_vadjustment().get_value() == old_value
         for _ in range(10):
-            view.navigate_messages('next')
+            assert app.window.key_controller.emit('key-pressed', Gdk.KEY_Down, 0, Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK)
         assert view.navigation_index() == 8
         assert not view.navigation_buttons['next'].get_sensitive()
         view.navigate_messages('previous')
         assert view.navigation_index() == 7
-        view.navigate_messages('latest')
+        assert app.window.key_controller.emit('key-pressed', Gdk.KEY_Down, 0, Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SHIFT_MASK)
         view.scroll_bottom()
         assert view._follow_bottom
         adjustment = view.scroll.get_vadjustment()

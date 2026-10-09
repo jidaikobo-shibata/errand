@@ -4,6 +4,7 @@ import sys
 from gi.repository import Adw, Gdk, Gio, Gtk
 
 from .settings import Settings
+from .shortcuts import ACTIONS, bindings, validate_shortcuts
 
 
 def load_settings(isolated=False):
@@ -16,6 +17,11 @@ def load_settings(isolated=False):
         schema = source.lookup('org.gnome.shell.extensions.errand', True) if source else None
         if schema:
             settings.gnome = Gio.Settings.new_full(schema, None, None)
+    try:
+        validate_shortcuts(settings.get('shortcuts'), settings.get('open-errand'))
+    except ValueError as exc:
+        settings.error = f'ショートカットの設定を読み込めませんでした: {exc}'
+        settings.values['shortcuts'] = {}
     return settings
 
 
@@ -47,7 +53,7 @@ class Preferences(Adw.PreferencesWindow):
                          default_width=540, default_height=450)
         self.app = app
         self.add_css_class('errand-window')
-        page = Adw.PreferencesPage()
+        page = Adw.PreferencesPage(title='一般', name='general')
         self.add(page)
         display = Adw.PreferencesGroup(title='表示')
         self.font = Adw.SpinRow.new_with_range(8, 28, 1)
@@ -61,22 +67,22 @@ class Preferences(Adw.PreferencesWindow):
         codex.add(self.path)
         page.add(codex)
         self.shortcut_value = app.settings.get('open-errand')
-        group = Adw.PreferencesGroup(title='起動ショートカット')
-        self.shortcut = Adw.ActionRow(title='Errandを開く', subtitle=accelerator_label(self.shortcut_value))
-        change = Gtk.Button(label='変更', valign=Gtk.Align.CENTER)
-        change.connect('clicked', self.capture)
-        self.shortcut.add_suffix(change)
-        self.shortcut.set_activatable_widget(change)
-        disable = Gtk.Button(label='無効化', valign=Gtk.Align.CENTER)
-        disable.connect('clicked', lambda _: self.set_shortcut(''))
-        self.shortcut.add_suffix(disable)
-        available = sys.platform == 'darwin' or app.settings.gnome is not None
-        self.shortcut.set_sensitive(available)
-        group.set_description('macOSではErrandが起動している間に使えます。' if sys.platform == 'darwin' else
-                              'GNOME拡張と同じ設定です。拡張を有効にして使ってください。' if available else
-                              'この環境では起動キーの登録に対応していません。')
-        group.add(self.shortcut)
-        page.add(group)
+        self.shortcut_overrides = app.settings.get('shortcuts')
+        self.shortcut_rows = {}
+        keyboard = Adw.PreferencesPage(title='キーボード・ショートカット', name='keyboard')
+        self.add(keyboard)
+        group = Adw.PreferencesGroup(title='起動', description=(
+            'macOSではErrandが起動している間に使えます。' if sys.platform == 'darwin' else
+            'GNOME拡張と同じ起動キーです。拡張を有効にして使ってください。'))
+        self.add_shortcut_row(group, 'open-errand', 'Errandを開く')
+        self.shortcut = self.shortcut_rows['open-errand']
+        self.shortcut.set_sensitive(sys.platform == 'darwin' or app.settings.gnome is not None)
+        keyboard.add(group)
+        local = Adw.PreferencesGroup(title='アプリ内の操作', description=
+            'OS側のショートカットと競合するキーはErrandに届きません。変更は保存後に反映します。')
+        for action, (title, _) in ACTIONS.items():
+            self.add_shortcut_row(local, action, title)
+        keyboard.add(local)
         controls = Adw.PreferencesGroup()
         self.message = Gtk.Label(wrap=True, xalign=0)
         self.message.set_wrap_mode(2)
@@ -87,27 +93,79 @@ class Preferences(Adw.PreferencesWindow):
         self.save_button.connect('clicked', self.save)
         controls.add(self.save_button)
         page.add(controls)
+        keyboard_controls = Adw.PreferencesGroup()
+        self.keyboard_message = Gtk.Label(wrap=True, xalign=0)
+        keyboard_controls.add(self.keyboard_message)
+        keyboard_save = Gtk.Button(label='保存', halign=Gtk.Align.END)
+        keyboard_save.add_css_class('suggested-action')
+        keyboard_save.connect('clicked', self.save)
+        keyboard_controls.add(keyboard_save)
+        keyboard.add(keyboard_controls)
+        self.connect('map', self.hide_page_icons)
 
-    def set_shortcut(self, value):
-        self.shortcut_value = value
-        self.shortcut.set_subtitle(accelerator_label(value))
+    def hide_page_icons(self, *_):
+        # ViewSwitcher expects page icons; these pages use text-only tabs.
+        def visit(widget, in_switcher=False):
+            in_switcher = in_switcher or isinstance(widget, Adw.ViewSwitcher)
+            if in_switcher and isinstance(widget, Gtk.Image):
+                widget.set_visible(False)
+            child = widget.get_first_child()
+            while child is not None:
+                visit(child, in_switcher)
+                child = child.get_next_sibling()
+        visit(self)
+
+    def row_label(self, action):
+        values = (self.shortcut_value,) if action == 'open-errand' else bindings(action, self.shortcut_overrides)
+        return ' / '.join(accelerator_label(value) for value in values) if values else '無効'
+
+    def add_shortcut_row(self, group, action, title):
+        row = Adw.ActionRow(title=title, subtitle=self.row_label(action))
+        self.shortcut_rows[action] = row
+        change = Gtk.Button(label='変更', valign=Gtk.Align.CENTER)
+        change.connect('clicked', lambda _: self.capture(action=action))
+        row.add_suffix(change)
+        row.set_activatable_widget(change)
+        for text, callback in (('無効化', lambda _: self.set_shortcut('', action)),
+                               ('既定値', lambda _: self.reset_shortcut(action))):
+            button = Gtk.Button(label=text, valign=Gtk.Align.CENTER)
+            button.connect('clicked', callback)
+            row.add_suffix(button)
+        group.add(row)
+
+    def set_shortcut(self, value, action='open-errand'):
+        if action == 'open-errand':
+            self.shortcut_value = value
+        else:
+            self.shortcut_overrides[action] = value
+        self.shortcut_rows[action].set_subtitle(self.row_label(action))
+
+    def reset_shortcut(self, action):
+        if action == 'open-errand':
+            default = self.app.settings.gnome.get_default_value('open-errand').unpack() if self.app.settings.gnome else []
+            self.set_shortcut(default[0] if default else '')
+        else:
+            self.shortcut_overrides.pop(action, None)
+            self.shortcut_rows[action].set_subtitle(self.row_label(action))
 
     def save(self, *_):
         try:
             self.app.save_preferences({'font-size': int(self.font.get_value()),
                                        'codex-path': self.path.get_text().strip(),
-                                       'open-errand': self.shortcut_value})
+                                       'open-errand': self.shortcut_value,
+                                       'shortcuts': self.shortcut_overrides})
         except (ValueError, OSError, RuntimeError) as exc:
             self.message.set_text(str(exc))
+            self.keyboard_message.set_text(str(exc))
             return
         self.close()
 
-    def capture(self, *_):
-        dialog = Gtk.Window(title='起動キーを設定', transient_for=self, modal=True,
+    def capture(self, *_, action='open-errand'):
+        dialog = Gtk.Window(title='ショートカットを設定', transient_for=self, modal=True,
                             default_width=440, default_height=180)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16,
                       margin_top=20, margin_bottom=20, margin_start=20, margin_end=20)
-        prompt = Gtk.Label(label='起動に使うキーを押してください。\nEscでキャンセル、Backspaceで無効化できます。',
+        prompt = Gtk.Label(label='割り当てるキーを押してください。\nEscでキャンセル、Backspaceで無効化できます。',
                            wrap=True, xalign=0)
         box.append(prompt)
         cancel = Gtk.Button(label='キャンセル')
@@ -122,7 +180,7 @@ class Preferences(Adw.PreferencesWindow):
                 dialog.close()
                 return True
             if key == Gdk.KEY_BackSpace and not modifiers:
-                self.set_shortcut('')
+                self.set_shortcut('', action)
                 dialog.close()
                 return True
             key = Gdk.keyval_to_lower(key)
@@ -132,13 +190,13 @@ class Preferences(Adw.PreferencesWindow):
                 prompt.set_text('Ctrl・Alt・Command・Superなどと組み合わせるか、Fキーを使ってください。')
                 return True
             value = Gtk.accelerator_name(key, modifiers)
-            if sys.platform == 'darwin':
+            if sys.platform == 'darwin' and action == 'open-errand':
                 try:
                     mac_key(value)
                 except ValueError as exc:
                     prompt.set_text(str(exc))
                     return True
-            self.set_shortcut(value)
+            self.set_shortcut(value, action)
             dialog.close()
             return True
         controller.connect('key-pressed', pressed)

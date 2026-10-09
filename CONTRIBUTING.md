@@ -95,6 +95,12 @@ GNOME拡張については [GJSガイド](https://gjs.guide/extensions/) を参�
 env GSETTINGS_BACKEND=memory python3 scripts/preferences_smoke.py
 ```
 
+ショートカットの変更・無効化・既定値への復帰と重複検出の検証:
+
+```bash
+env GSETTINGS_BACKEND=memory python3 scripts/shortcuts_smoke.py
+```
+
 GNOMEではGSettingsを共有し、macOSでは利用者のApplication Support内に設定を保存します。
 設定ファイルとCodexのパスはローカル情報なので、リポジトリや配布物へ含めないでください。
 新しいスキーマを追加した場合はビルド時にコンパイルし、拡張の設定画面を開き直してください。

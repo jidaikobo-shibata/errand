@@ -15,6 +15,7 @@ from .session import Session
 from .markdown_widget import MarkdownView
 from .preferences import Preferences, load_settings, mac_key
 from .settings import DEFAULTS, validate
+from .shortcuts import ACTIONS, bindings, key_signature, signature, validate_shortcuts
 
 
 STARTUP_TIPS = (
@@ -133,9 +134,11 @@ class Conversation(Gtk.Box):
         navigation = Gtk.Box(spacing=4, halign=Gtk.Align.CENTER)
         navigation.add_css_class("errand-navigation")
         self.navigation_buttons = {}
-        for action, title in (("first", "最初の発言へ"), ("previous", "前の発言へ"),
-                              ("next", "次の発言へ"), ("latest", "最新へ移動して自動追従")):
-            button = Gtk.Button(tooltip_text=title, sensitive=False)
+        for action, title, shortcut in (("first", "最初の発言へ", "Ctrl+Alt+Shift+↑"),
+                                       ("previous", "前の発言へ", "Ctrl+Alt+↑"),
+                                       ("next", "次の発言へ", "Ctrl+Alt+↓"),
+                                       ("latest", "最新へ移動して自動追従", "Ctrl+Alt+Shift+↓")):
+            button = Gtk.Button(tooltip_text=f"{title}（{shortcut}）", sensitive=False)
             button.add_css_class("flat")
             button.update_property([Gtk.AccessibleProperty.LABEL], [title])
             icon = Gtk.DrawingArea(width_request=16, height_request=16)
@@ -882,8 +885,8 @@ class Window(Adw.ApplicationWindow):
         self.tabs = Adw.TabView(vexpand=True)
         # Keep document-boundary keys available to text widgets, including
         # Ctrl+Up/Down translated to Ctrl+Home/End by xremap.
-        self.tabs.set_shortcuts(self.tabs.get_shortcuts() &
-                                ~(Adw.TabViewShortcuts.CONTROL_HOME | Adw.TabViewShortcuts.CONTROL_END))
+        # All tab keys go through the configurable window shortcut dispatcher.
+        self.tabs.set_shortcuts(Adw.TabViewShortcuts.NONE)
         self.tabs.connect("close-page", self.close_page)
         self.tabs.connect("notify::selected-page", self.selected_tab)
         bar = Adw.TabBar(view=self.tabs, autohide=False)
@@ -913,6 +916,7 @@ class Window(Adw.ApplicationWindow):
         page.set_title(conversation.topic)
         page.set_tooltip("タブを閉じると、この会話を終了します（復元できません）。")
         self.tabs.set_selected_page(page)
+        self.refresh_shortcut_labels()
         return conversation
 
     def selected_tab(self, *_):
@@ -935,57 +939,61 @@ class Window(Adw.ApplicationWindow):
                 self.current.model_popover.popdown()
                 return True
         modifiers = state & Gtk.accelerator_get_default_mod_mask()
+        if self.close_dialog is None:
+            current_key = key_signature(keyval, modifiers)
+            for action in ACTIONS:
+                if any(current_key == signature(value) for value in self.app.action_bindings(action)):
+                    self.run_shortcut(action)
+                    return True
         if (not modifiers and self.close_dialog is None and self.current
                 and self.current.input.has_focus() and keyval in (Gdk.KEY_Up, Gdk.KEY_Down)):
             if self.current.recall_prompt(-1 if keyval == Gdk.KEY_Up else 1):
                 return True
-        shortcut_modifiers = {Gdk.ModifierType.CONTROL_MASK}
-        if sys.platform == "darwin":
-            shortcut_modifiers.add(Gdk.ModifierType.META_MASK)
-        zoom_modifiers = modifiers & ~Gdk.ModifierType.SHIFT_MASK
-        if zoom_modifiers in shortcut_modifiers and self.close_dialog is None:
-            if keyval in (Gdk.KEY_plus, Gdk.KEY_KP_Add) or (
-                    keyval == Gdk.KEY_equal and modifiers in shortcut_modifiers):
-                self.app.change_font_size(1)
-                return True
-            if modifiers in shortcut_modifiers:
-                if keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
-                    self.app.change_font_size(-1)
-                    return True
-                if keyval in (Gdk.KEY_0, Gdk.KEY_KP_0):
-                    self.app.change_font_size(0)
-                    return True
-        if modifiers in shortcut_modifiers and self.close_dialog is None:
-            if keyval == Gdk.KEY_comma:
-                self.app.open_preferences()
-                return True
-            if self.current and self.current.input.has_focus() and keyval in (
-                    Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Home, Gdk.KEY_End):
-                view = self.current.input
-                buffer = view.get_buffer()
-                buffer.place_cursor(buffer.get_start_iter() if keyval in (Gdk.KEY_Up, Gdk.KEY_Home)
-                                    else buffer.get_end_iter())
-                view.scroll_mark_onscreen(buffer.get_insert())
-                return True
-            if keyval in (Gdk.KEY_q, Gdk.KEY_Q):
-                self.quit_application()
-                return True
-            if keyval in (Gdk.KEY_t, Gdk.KEY_T):
-                self.new_tab()
-                return True
-            if keyval in (Gdk.KEY_w, Gdk.KEY_W):
-                page = self.tabs.get_selected_page()
-                if page:
-                    self.tabs.close_page(page)
-                return True
-        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and modifiers in shortcut_modifiers:
-            if self.current and self.close_dialog is None:
-                self.current.send(None)
-            return True
-        if keyval == Gdk.KEY_Escape and self.close_dialog is None:
-            self.set_visible(False)
+        if (modifiers == Gdk.ModifierType.CONTROL_MASK and self.close_dialog is None
+                and self.current and self.current.input.has_focus()
+                and keyval in (Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Home, Gdk.KEY_End)):
+            view = self.current.input
+            buffer = view.get_buffer()
+            buffer.place_cursor(buffer.get_start_iter() if keyval in (Gdk.KEY_Up, Gdk.KEY_Home)
+                                else buffer.get_end_iter())
+            view.scroll_mark_onscreen(buffer.get_insert())
             return True
         return False
+
+    def run_shortcut(self, action):
+        if action in ('previous-tab', 'next-tab'):
+            if action == 'previous-tab':
+                self.tabs.select_previous_page()
+            else:
+                self.tabs.select_next_page()
+        elif action == 'new-tab':
+            self.new_tab()
+        elif action == 'close-tab':
+            page = self.tabs.get_selected_page()
+            if page:
+                self.tabs.close_page(page)
+        elif action == 'send' and self.current:
+            self.current.send(None)
+        elif action.endswith('-message') and self.current:
+            self.current.navigate_messages({'previous-message': 'previous', 'next-message': 'next',
+                                            'first-message': 'first', 'latest-message': 'latest'}[action])
+        elif action in ('zoom-in', 'zoom-out', 'zoom-reset'):
+            self.app.change_font_size({'zoom-in': 1, 'zoom-out': -1, 'zoom-reset': 0}[action])
+        elif action == 'preferences':
+            self.app.open_preferences()
+        elif action == 'quit':
+            self.quit_application()
+        elif action == 'hide':
+            self.set_visible(False)
+
+    def refresh_shortcut_labels(self):
+        self.new.set_tooltip_text(self.app.shortcut_title('new-tab'))
+        for conversation in self.conversations:
+            for action, button in conversation.navigation_buttons.items():
+                name = {'first': 'first-message', 'previous': 'previous-message',
+                        'next': 'next-message', 'latest': 'latest-message'}[action]
+                button.set_tooltip_text(self.app.shortcut_title(name))
+
 
     def outside_click(self, gesture, count, x, y):
         if not self.current:
@@ -1077,11 +1085,11 @@ class Application(Adw.Application):
             preferences_action = Gio.SimpleAction.new("preferences", None)
             preferences_action.connect("activate", lambda *_: self.open_preferences())
             self.add_action(preferences_action)
-            self.set_accels_for_action("app.preferences", ["<Meta>comma"])
+            self.set_accels_for_action('app.preferences', list(self.action_bindings('preferences')))
             action = Gio.SimpleAction.new("quit", None)
             action.connect("activate", lambda *_: self.window.quit_application() if self.window else self.quit())
             self.add_action(action)
-            self.set_accels_for_action("app.quit", ["<Meta>q"])
+            self.set_accels_for_action('app.quit', list(self.action_bindings('quit')))
             menu = Gio.Menu()
             application_menu = Gio.Menu()
             application_menu.append("環境設定…", "app.preferences")
@@ -1126,8 +1134,24 @@ class Application(Adw.Application):
         if self.preferences:
             self.preferences.font.set_value(size)
 
+    def action_bindings(self, action):
+        return bindings(action, self.settings.get('shortcuts'))
+
+    def shortcut_title(self, action):
+        from .preferences import accelerator_label
+        keys = ' / '.join(accelerator_label(value) for value in self.action_bindings(action)) or '無効'
+        return f'{ACTIONS[action][0]}（{keys}）'
+
+    def apply_shortcuts(self):
+        if sys.platform == 'darwin':
+            self.set_accels_for_action('app.preferences', list(self.action_bindings('preferences')))
+            self.set_accels_for_action('app.quit', list(self.action_bindings('quit')))
+        if self.window:
+            self.window.refresh_shortcut_labels()
+
     def save_preferences(self, values):
         values = validate(values)
+        validate_shortcuts(values['shortcuts'], values['open-errand'])
         old_shortcut = self.registered_shortcut
         self.register_shortcut(values["open-errand"])
         try:
@@ -1139,6 +1163,7 @@ class Application(Adw.Application):
         if self.window:
             self.window.codex = self.codex
         self.apply_font()
+        self.apply_shortcuts()
 
     def open_preferences(self):
         if self.window is None:
@@ -1158,6 +1183,7 @@ class Application(Adw.Application):
             Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.font_css,
                                                      Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
             self.window = Window(self, self.codex)
+            self.apply_shortcuts()
             try:
                 self.register_shortcut(self.settings.get("open-errand"))
             except (ValueError, OSError, RuntimeError) as exc:

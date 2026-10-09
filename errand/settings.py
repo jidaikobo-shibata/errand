@@ -1,15 +1,17 @@
 """Local UI preferences; never changes Codex configuration or credentials."""
 import json
+from copy import deepcopy
+from .shortcuts import ACTIONS
 import os
 from pathlib import Path
 import sys
 import tempfile
 
-DEFAULTS = {'font-size': 11, 'codex-path': '', 'open-errand': ''}
+DEFAULTS = {'font-size': 11, 'codex-path': '', 'open-errand': '', 'shortcuts': {}}
 
 
 def validate(values):
-    result = dict(DEFAULTS)
+    result = deepcopy(DEFAULTS)
     result.update({key: values[key] for key in DEFAULTS if key in values})
     size = result['font-size']
     if isinstance(size, bool) or not isinstance(size, int) or not 8 <= size <= 28:
@@ -17,6 +19,11 @@ def validate(values):
     for key in ('codex-path', 'open-errand'):
         if not isinstance(result[key], str):
             raise ValueError('設定の形式が正しくありません。')
+    shortcuts = result['shortcuts']
+    if (not isinstance(shortcuts, dict) or set(shortcuts) - set(ACTIONS)
+            or any(not isinstance(value, str) for value in shortcuts.values())):
+        raise ValueError('キーボード・ショートカットの設定が正しくありません。')
+    result['shortcuts'] = dict(shortcuts)
     path = result['codex-path']
     if path and (not Path(path).is_absolute() or not Path(path).is_file() or not os.access(path, os.X_OK)):
         raise ValueError('Codexの実行可能なファイルを絶対パスで指定してください。')
@@ -27,7 +34,7 @@ class Settings:
     def __init__(self, path=None, isolated=False):
         self.gnome = None
         self.error = None
-        self.values = dict(DEFAULTS)
+        self.values = deepcopy(DEFAULTS)
         self.isolated = isolated
         self.path = path or (Path.home() / 'Library/Application Support/Errand/settings.json'
                              if sys.platform == 'darwin' else
@@ -52,7 +59,7 @@ class Settings:
                 entries = self.gnome.get_strv(key)
                 return entries[0] if entries else ''
             return self.gnome.get_int(key) if key == 'font-size' else self.gnome.get_string(key)
-        return self.values[key]
+        return deepcopy(self.values[key])
 
     def save(self, values):
         values = validate(values)

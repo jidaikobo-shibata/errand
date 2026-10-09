@@ -60,7 +60,7 @@ def tick():
             assert buffer.get_iter_at_mark(buffer.get_insert()).get_offset() == buffer.get_char_count()
             assert not (app.window.tabs.get_shortcuts() &
                         (Adw.TabViewShortcuts.CONTROL_HOME | Adw.TabViewShortcuts.CONTROL_END))
-            assert app.window.tabs.get_shortcuts() & Adw.TabViewShortcuts.CONTROL_PAGE_UP
+            assert app.window.tabs.get_shortcuts() == Adw.TabViewShortcuts.NONE
             assert app.window.key_controller.emit("key-pressed", Gdk.KEY_Home, 0, Gdk.ModifierType.CONTROL_MASK)
             assert buffer.get_iter_at_mark(buffer.get_insert()).get_offset() == 0
             assert app.window.key_controller.emit("key-pressed", Gdk.KEY_End, 0, Gdk.ModifierType.CONTROL_MASK)

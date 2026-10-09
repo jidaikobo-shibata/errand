@@ -61,6 +61,26 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(settings.get('font-size'), 14)
             self.assertFalse(path.exists())
 
+    def test_shortcut_overrides_persist_and_survive_font_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'settings.json'
+            settings = Settings(path=path)
+            overrides = {'new-tab': '<Control><Alt>n', 'close-tab': ''}
+            settings.save({'shortcuts': overrides})
+            settings.set_font_size(15)
+            self.assertEqual(Settings(path=path).get('shortcuts'), overrides)
+            copy = settings.get('shortcuts')
+            copy.clear()
+            self.assertEqual(settings.get('shortcuts'), overrides)
+            with self.assertRaises(ValueError):
+                settings.save({'shortcuts': {'unknown-action': '<Control>a'}})
+
+    def test_older_preferences_keep_default_shortcuts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'settings.json'
+            path.write_text('{"font-size": 13, "codex-path": "", "open-errand": ""}')
+            self.assertEqual(Settings(path=path).get('shortcuts'), {})
+
     def test_mac_common_key_codes(self):
         self.assertEqual(KEYS['e'], 14)
         self.assertEqual(KEYS['F5'], 96)

@@ -136,7 +136,12 @@ python3 -m unittest discover -s tests -v
 ```bash
 env GSETTINGS_BACKEND=memory python3 scripts/ui_smoke.py
 env GSETTINGS_BACKEND=memory python3 scripts/setup_ui_smoke.py
+env GSETTINGS_BACKEND=memory python3 scripts/file_drop_smoke.py
 ```
+
+ファイルの検証はGTKのURI変換と実際の添付表示を通します。macOSではFoundationを使い、
+GTK 4.22がファイルURIのコロンを誤ってエスケープする不具合も再現します。
+日本語・空白・記号を含む名前、重複、無効なURIの拒否を確認し、モデルには接続しません。
 
 最終バンドルの公式取得・チェックサム・接続確認（新規の検証先を指定）:
 

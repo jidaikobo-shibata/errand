@@ -203,22 +203,26 @@ def tick():
             if content._pending is not None:
                 return True
             adjustment = window.scroll.get_vadjustment()
-            assert adjustment.get_upper() > adjustment.get_page_size()
-            assert abs(adjustment.get_value() - (adjustment.get_upper() - adjustment.get_page_size())) < 1
+            # GTK can finish layout on a later frame; keep the overall timeout.
+            if (adjustment.get_upper() <= adjustment.get_page_size()
+                    or abs(adjustment.get_value() - (adjustment.get_upper() - adjustment.get_page_size())) >= 1):
+                return True
             # A final reply and status update resize both content and viewport.
             window.event("assistant", {"item_id": "scroll-test", "text": content.get_source() + "\n\n最後の選択肢\n" * 10})
             window.status.set_text("状態表示\n" * 3)
             stage = 11
         elif stage == 11:
             adjustment = window.scroll.get_vadjustment()
-            assert abs(adjustment.get_value() - (adjustment.get_upper() - adjustment.get_page_size())) < 1
+            if abs(adjustment.get_value() - (adjustment.get_upper() - adjustment.get_page_size())) >= 1:
+                return True
             # Reproduce GTK restoring an earlier position after changed.
             adjustment.emit("changed")
             adjustment.set_value(adjustment.get_value() - 30)
             stage = 12
         elif stage == 12:
             adjustment = window.scroll.get_vadjustment()
-            assert abs(adjustment.get_value() - (adjustment.get_upper() - adjustment.get_page_size())) < 1
+            if abs(adjustment.get_value() - (adjustment.get_upper() - adjustment.get_page_size())) >= 1:
+                return True
             window.scroll_controller.emit("scroll", 0., -1.)
             adjustment.set_value(adjustment.get_value() - 100)
             tab_checks["reading_position"] = adjustment.get_value()
@@ -382,7 +386,7 @@ def tick():
             window.send(None)
             assert len(window.attachments) == 2
             stage = 19
-        elif stage == 19 and not window.session.busy:
+        elif stage == 19 and not window.session.busy and window.pending_submission is None:
             buffer = window.input.get_buffer()
             assert buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False) == "対象を確認してください"
             assert len(window.attachments) == 2
@@ -448,14 +452,26 @@ def tick():
             app.command = command
             stage = 23
         elif stage == 23:
-            if window.models_loading or "codex login" not in window.status.get_text():
+            if window.models_loading or "ChatGPTにログイン" not in window.status.get_text():
                 return True
             assert window.status.get_visible()
             assert not window.model_entries
             assert not window.send_button.get_sensitive()
-            assert "codex login" in window.model_status.get_text()
+            assert "ChatGPTにログイン" in window.model_status.get_text()
+            assert window.login_box.get_visible()
+            assert window.login_button.get_sensitive()
+            tab_checks["login_urls"] = []
+            window.open_login_browser = lambda: tab_checks["login_urls"].append(window.login_url)
+            window.session.command = app.command
+            window.login_button.emit("clicked")
+            stage = 30
+        elif stage == 30:
+            if window.models_loading or not window.model_entries or window.login_box.get_visible():
+                return True
+            assert tab_checks["login_urls"] == ["https://auth.openai.com/oauth/authorize?test=true"]
+            assert window.send_button.get_sensitive()
             assert app.window.key_controller.emit("key-pressed", Gdk.KEY_q, 0, Gdk.ModifierType.CONTROL_MASK)
-            print("PASS: GTK tabs, approvals, file drops, math and login guidance", flush=True)
+            print("PASS: GTK tabs, approvals, file drops, math and browser login", flush=True)
             return False
         return True
     except Exception as error:

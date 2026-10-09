@@ -12,6 +12,8 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from .session import Session
+from .login import Login
+from .runtime import RuntimeSetup, SETUP_DESCRIPTION
 from .markdown_widget import MarkdownView
 from .preferences import Preferences, load_settings, mac_key
 from .settings import DEFAULTS, validate
@@ -51,6 +53,7 @@ class Conversation(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10,
                          margin_start=16, margin_end=16, margin_bottom=16)
         self.owner = owner
+        self.app = app
         self.page = None
         self.closed = False
         self.topic = "新しいお願い"
@@ -59,6 +62,8 @@ class Conversation(Gtk.Box):
         self.attachments = {}
         self.pending_submission = None
         self.session = Session(self.event, dispatch=GLib.idle_add, codex=codex, command=app.command)
+        self.login = Login(self.login_event, dispatch=GLib.idle_add, codex=codex, command=app.command)
+        self.login_url = None
         self.model_entries = []
         self.effort_values = [None]
         self.models_loading = False
@@ -121,6 +126,33 @@ class Conversation(Gtk.Box):
         self.status_scroll.set_visible(self.status.get_visible())
         self.status.connect("notify::visible", lambda item, _: self.status_scroll.set_visible(item.get_visible()))
         body.append(self.status_scroll)
+        self.setup_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, visible=False)
+        self.setup_description = label(SETUP_DESCRIPTION)
+        self.setup_box.append(self.setup_description)
+        self.setup_progress = Gtk.ProgressBar(show_text=True, visible=False)
+        self.setup_progress.update_property([Gtk.AccessibleProperty.LABEL], ["動作環境の準備"])
+        self.setup_box.append(self.setup_progress)
+        setup_buttons = Gtk.Box(spacing=8)
+        self.setup_button = Gtk.Button(label="動作環境を準備する")
+        self.setup_button.add_css_class("suggested-action")
+        self.setup_button.connect("clicked", lambda _: app.runtime.start())
+        setup_buttons.append(self.setup_button)
+        self.setup_cancel_button = Gtk.Button(label="準備を中止", visible=False)
+        self.setup_cancel_button.connect("clicked", lambda _: self.cancel_setup())
+        setup_buttons.append(self.setup_cancel_button)
+        self.setup_box.append(setup_buttons)
+        body.append(self.setup_box)
+        self.login_box = Gtk.Box(spacing=8, visible=False)
+        self.login_button = Gtk.Button(label="ChatGPTにログイン")
+        self.login_button.connect("clicked", lambda _: self.login.start())
+        self.login_box.append(self.login_button)
+        self.login_browser_button = Gtk.Button(label="ブラウザを開く", visible=False)
+        self.login_browser_button.connect("clicked", lambda _: self.open_login_browser())
+        self.login_box.append(self.login_browser_button)
+        self.login_cancel_button = Gtk.Button(label="ログインを中止", visible=False)
+        self.login_cancel_button.connect("clicked", lambda _: self.login.cancel())
+        self.login_box.append(self.login_cancel_button)
+        body.append(self.login_box)
         input_scroll = Gtk.ScrolledWindow(min_content_height=100, max_content_height=140)
         input_scroll.add_css_class("errand-input")
         self.input_css = Gtk.CssProvider()
@@ -221,11 +253,14 @@ class Conversation(Gtk.Box):
         row.append(self.model_button)
         row.append(self.approval_choice)
         body.append(row)
+        app.runtime.subscribe(self.setup_event)
         if not app.smoke:
             self.session.load_models()
 
     def close(self):
         self.closed = True
+        self.app.runtime.unsubscribe(self.setup_event)
+        self.login.close()
         if self._scroll_idle is not None:
             GLib.source_remove(self._scroll_idle)
             self._scroll_idle = None
@@ -233,6 +268,73 @@ class Conversation(Gtk.Box):
         self.conversation_popover.popdown()
         Gtk.StyleContext.remove_provider_for_display(self.get_display(), self.input_css)
         self.session.close(wait=False)
+
+    def cancel_setup(self):
+        self.status.set_text("動作環境の準備を中止しています…")
+        self.setup_cancel_button.set_sensitive(False)
+        self.app.runtime.cancel()
+
+    def setup_event(self, kind, data):
+        if self.closed or not self.setup_box.get_visible():
+            return
+        if kind == "state":
+            self.setup_button.set_sensitive(not data["active"])
+            self.setup_cancel_button.set_visible(data["active"])
+            if data["active"]:
+                self.setup_cancel_button.set_sensitive(True)
+                self.setup_progress.set_visible(True)
+                self.status.set_text("動作環境を確認しています…")
+        elif kind == "progress":
+            fraction = data["fraction"]
+            self.setup_progress.set_visible(True)
+            self.setup_progress.set_fraction(fraction or 0)
+            if fraction is None:
+                self.setup_progress.pulse()
+            self.setup_progress.set_text(data["message"] + (f"（{fraction:.0%}）" if fraction is not None else ""))
+            self.status.set_text(self.setup_progress.get_text())
+        elif kind == "ready":
+            self.session.codex = self.login.codex = data["path"]
+            self.setup_box.set_visible(False)
+            self.status.set_text("動作環境の準備が完了しました。ログイン状態を確認しています…")
+            self.session.load_models()
+        elif kind == "error":
+            self.setup_progress.set_visible(False)
+            self.status.set_text(data["message"])
+        elif kind == "cancelled":
+            self.setup_progress.set_visible(False)
+            self.status.set_text("動作環境の準備を中止しました。ボタンからもう一度準備できます。")
+
+    def open_login_browser(self):
+        if self.login_url:
+            try:
+                Gio.AppInfo.launch_default_for_uri(self.login_url, None)
+            except Exception:
+                self.status.set_text("ブラウザを開けませんでした。「ブラウザを開く」で再試行してください。")
+
+    def login_event(self, kind, data):
+        if self.closed:
+            return
+        if kind == "state":
+            self.login_button.set_sensitive(not data["active"])
+            self.login_cancel_button.set_visible(data["active"])
+            if data["active"]:
+                self.status.set_text("ログイン画面を準備しています…")
+            else:
+                self.login_url = None
+                self.login_browser_button.set_visible(False)
+                if data.get("cancelled"):
+                    self.status.set_text("ログインを中止しました。必要なときにもう一度ログインできます。")
+        elif kind == "browser":
+            self.login_url = data["url"]
+            self.login_browser_button.set_visible(True)
+            self.status.set_text("ブラウザでログインを完了してください。終わったらこの画面へ戻ってください。")
+            self.open_login_browser()
+        elif kind == "success":
+            self.login_box.set_visible(False)
+            self.status.set_text("ログインできました。モデル一覧を取得しています…")
+            self.session.load_models()
+        elif kind == "error":
+            self.status.set_text(data["message"])
 
     def focus_input(self):
         if self.owner.current is self:
@@ -480,6 +582,8 @@ class Conversation(Gtk.Box):
                 self.model_status.set_text("モデル一覧を取得中…")
             self.update_model_controls()
         elif kind == "models":
+            self.login_box.set_visible(False)
+            self.setup_box.set_visible(False)
             previous = self.selected_model()
             previous_model = previous["model"] if previous else None
             previous_effort = self.selected_effort()
@@ -496,7 +600,17 @@ class Conversation(Gtk.Box):
                                        else "選択できるモデルがありません。新しいタブでお試しください。")
             self.update_model_controls()
         elif kind == "models_error":
-            if data.get("login_required"):
+            if data.get("setup_required"):
+                self.setup_box.set_visible(True)
+                self.login_box.set_visible(False)
+                self.model_status.set_text("動作環境の準備が必要です。")
+                self.status.set_text("下の「動作環境を準備する」を押してください。")
+                self.setup_event("state", {"active": self.app.runtime.active})
+                if self.app.runtime.active:
+                    message, fraction = self.app.runtime.progress
+                    self.setup_event("progress", {"message": message, "fraction": fraction})
+            elif data.get("login_required"):
+                self.login_box.set_visible(True)
                 self.model_status.set_text(data["message"])
                 self.status.set_text(data["message"])
             else:
@@ -871,7 +985,7 @@ class Window(Adw.ApplicationWindow):
 
 
 class Application(Adw.Application):
-    def __init__(self, codex=None, smoke=False, isolated=False, command=None):
+    def __init__(self, codex=None, smoke=False, isolated=False, command=None, runtime=None):
         flags = Gio.ApplicationFlags.NON_UNIQUE if smoke or isolated else Gio.ApplicationFlags.DEFAULT_FLAGS
         super().__init__(application_id="jp.jidaikobo.Errand", flags=flags)
         GLib.set_application_name("Errand")
@@ -879,6 +993,7 @@ class Application(Adw.Application):
         codex = codex or self.settings.get("codex-path") or None
         self.codex, self.smoke = codex, smoke
         self.command = command
+        self.runtime = runtime or RuntimeSetup(dispatch=GLib.idle_add)
         self.window = None
         self.preferences = None
         self.font_css = Gtk.CssProvider()
@@ -983,6 +1098,7 @@ class Application(Adw.Application):
             GLib.timeout_add(250, lambda: (self.quit(), False)[1])
 
     def shutdown_session(self, _):
+        self.runtime.close()
         if self.mac_shortcut:
             self.mac_shortcut.close()
         if self.preferences:
@@ -997,7 +1113,24 @@ def main():
     parser = argparse.ArgumentParser(description="Errand — 小さなCodexチャット")
     parser.add_argument("--codex", help="Codex実行ファイルの絶対パス")
     parser.add_argument("--smoke-test", action="store_true", help="表示後に終了（Codexへは接続しない）")
+    parser.add_argument("--runtime-check-root", type=Path,
+                        help="開発用：指定した新規フォルダーへCodexを取得して動作検証")
+    parser.add_argument("--runtime-check-arch", choices=("arm64", "x86_64"),
+                        help="開発用：取得・検証するCodexのCPU")
     args = parser.parse_args()
+    if args.runtime_check_root:
+        import threading
+        import platform
+        from .runtime import install_runtime
+        root = args.runtime_check_root.resolve()
+        if root.exists():
+            parser.error("検証用の出力先は新規フォルダーを指定してください。")
+        def report(message, fraction):
+            if fraction is None:
+                print(message, flush=True)
+        install_runtime(root, args.runtime_check_arch or platform.machine(), threading.Event(), report)
+        print("PASS: official download, checksum and app-server handshake", flush=True)
+        return 0
     if not Gtk.init_check():
         parser.exit(1, "画面へ接続できません。デスクトップのTerminalから起動してください。\n")
     return Application(args.codex, args.smoke_test).run([sys.argv[0]])

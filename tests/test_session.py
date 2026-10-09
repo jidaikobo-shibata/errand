@@ -4,8 +4,9 @@ import sys
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
-from errand.protocol import RpcError, server_command
+from errand.protocol import CodexMissing, RpcError, server_command
 from errand.session import Session
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -39,6 +40,15 @@ class SessionTests(unittest.TestCase):
         self.session.load_models()
         self.wait(lambda: any(k == "models_state" and not d["loading"] for k, d in self.events))
         return next(d["models"] for k, d in self.events if k == "models")
+
+    def test_missing_codex_requests_setup_without_login_or_download(self):
+        self.session.command = None
+        with patch('errand.session.find_codex', side_effect=CodexMissing('missing')):
+            self.session.load_models()
+            self.wait(lambda: any(k == 'models_state' and not d['loading'] for k, d in self.events))
+        error = next(d for k, d in self.events if k == 'models_error')
+        self.assertTrue(error['setup_required'])
+        self.assertFalse(error['login_required'])
 
     def test_summary_uses_separate_ephemeral_thread_and_preserves_conversation(self):
         self.catalogue()
@@ -114,7 +124,7 @@ class SessionTests(unittest.TestCase):
         self.wait(lambda: any(k == "models_state" and not d["loading"] for k, d in self.events))
         error = next(d for k, d in self.events if k == "models_error")
         self.assertTrue(error["login_required"])
-        self.assertIn("codex login", error["message"])
+        self.assertIn("ChatGPTにログイン", error["message"])
         self.assertFalse(any(k == "models" for k, _ in self.events))
 
     def test_provider_without_openai_auth_can_load_models(self):

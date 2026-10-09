@@ -1,0 +1,56 @@
+name: Build Mac trial and source packages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Mac ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install native build environment
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+        run: |
+          brew install gtk4 libadwaita pygobject3 python@3.14
+          "$(brew --prefix python@3.14)/bin/python3.14" \
+            -m venv --system-site-packages dist/build-env
+          dist/build-env/bin/python -m pip install \
+            --only-binary=:all: -r scripts/build-requirements.txt
+      - name: Test without model calls
+        run: dist/build-env/bin/python -B -m unittest discover -s tests -v
+      - name: Build trial and corresponding sources
+        run: |
+          dist/build-env/bin/python scripts/build_macos_release.py \
+            --output "dist/distribution/${{ matrix.arch }}"
+      - name: Verify without Homebrew access
+        shell: bash
+        run: |
+          app_path=$(find "dist/distribution/${{ matrix.arch }}" \
+            -maxdepth 2 -type d -path '*/Errand-Trial-*/Errand.app')
+          /usr/bin/sandbox-exec -p \
+            '(version 1)(allow default)(deny file-read* (subpath "/opt/homebrew") (subpath "/usr/local"))' \
+            "$app_path/Contents/MacOS/Errand" --smoke-test
+      - name: Upload trial, sources and checksums
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Errand-Trial-${{ matrix.arch }}
+          path: |
+            dist/distribution/${{ matrix.arch }}/*.zip
+            dist/distribution/${{ matrix.arch }}/*.sha256
+          if-no-files-found: error
+          retention-days: 14

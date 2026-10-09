@@ -101,6 +101,10 @@ class Conversation(Gtk.Box):
         self.approval_choice.connect("notify::selected", self.approval_changed)
         self.approval_choice.set_tooltip_text("このタブの承認方法。自動レビューはApprove for meに相当し、全許可ではありません。")
         self.model_popover = Gtk.Popover(autohide=True)
+        self.model_pointer = Gtk.GestureClick(button=0)
+        self.model_pointer.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.model_pointer.connect("pressed", self.model_pointer_pressed)
+        self.model_popover.add_controller(self.model_pointer)
         self.model_popover.set_child(selection)
         self.model_button = Gtk.MenuButton(label="モデル取得中…", tooltip_text="モデルと推論の強さを変更")
         self.model_button.set_popover(self.model_popover)
@@ -304,6 +308,16 @@ class Conversation(Gtk.Box):
         app.runtime.subscribe(self.setup_event)
         if not app.smoke:
             self.session.load_models()
+
+    def model_pointer_pressed(self, controller, count, x, y):
+        # Use popover-local bounds here; window picking uses different
+        # coordinates and can mistake a dropdown click for an outside click.
+        width, height = self.model_popover.get_width(), self.model_popover.get_height()
+        if not self.model_popover.get_visible() or width <= 0 or height <= 0:
+            return
+        if not (0 <= x < width and 0 <= y < height):
+            self.model_popover.popdown()
+            GLib.idle_add(self.focus_input)
 
     def close(self):
         self.closed = True
@@ -979,7 +993,7 @@ class Window(Adw.ApplicationWindow):
         self.conversations = []
         self.close_dialog = None
         self.connect("close-request", self.hide_on_close)
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.set_content(root)
         header = Adw.HeaderBar()
         root.append(header)
@@ -1002,7 +1016,7 @@ class Window(Adw.ApplicationWindow):
         self.preferences_button.set_child(menu_icon)
         self.preferences_button.connect("clicked", lambda _: app.open_preferences())
         header.pack_end(self.preferences_button)
-        self.tabs = Adw.TabView(vexpand=True)
+        self.tabs = Adw.TabView(vexpand=True, margin_top=10)
         # Keep document-boundary keys available to text widgets, including
         # Ctrl+Up/Down translated to Ctrl+Home/End by xremap.
         # All tab keys go through the configurable window shortcut dispatcher.
@@ -1123,12 +1137,19 @@ class Window(Adw.ApplicationWindow):
             if not popover.get_visible():
                 continue
             target = self.pick(x, y, Gtk.PickFlags.DEFAULT)
+            input_clicked = False
             while target is not None:
+                if target is self.current.input:
+                    input_clicked = True
                 if target in (popover, button):
                     break
                 target = target.get_parent()
             if target is None:
                 popover.popdown()
+                if input_clicked:
+                    # Popdown may restore focus to the menu button after
+                    # the editor's own click handler has already run.
+                    GLib.idle_add(self.current.focus_input)
 
     def quit_application(self):
         if not any(conversation.session.busy for conversation in self.conversations):

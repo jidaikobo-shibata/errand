@@ -246,6 +246,8 @@ def tick():
             assert not window.stop.get_visible()
             window.model_button.popup()
             assert window.model_popover.get_autohide()
+            window.model_pointer.emit("pressed", 1, 10., 10.)
+            assert window.model_popover.get_visible()
             app.window.outside_click(None, 1, 20, 20)
             assert not window.model_popover.get_visible()
             window.model_button.popup()

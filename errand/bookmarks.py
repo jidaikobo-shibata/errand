@@ -6,6 +6,18 @@ import tempfile
 from uuid import uuid4
 
 
+def valid_text(value):
+    # GTK strings are UTF-8 and NUL-terminated. Reject values that would
+    # be truncated or fail conversion when passed to widgets.
+    if not isinstance(value, str) or '\x00' in value:
+        return False
+    try:
+        value.encode('utf-8')
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def validate(items):
     if not isinstance(items, list) or len(items) > 200:
         raise ValueError('定番のお願いは200件まで保存できます。')
@@ -15,9 +27,11 @@ def validate(items):
         if not isinstance(item, dict):
             raise ValueError('保存データの形式が正しくありません。')
         key, name, text = (item.get(field) for field in ('id', 'name', 'text'))
-        if (not isinstance(key, str) or not key or key in seen
-                or not isinstance(name, str) or not name.strip() or len(name) > 100
-                or not isinstance(text, str) or not text.strip() or len(text) > 100000):
+        if not all(valid_text(value) for value in (key, name, text)):
+            raise ValueError('名前や依頼文に、表示できない文字が含まれています。')
+        if (not key or key in seen
+                or not name.strip() or len(name) > 100
+                or not text.strip() or len(text) > 100000):
             raise ValueError('名前は1〜100文字、依頼文は1〜100000文字で入力してください。')
         seen.add(key)
         result.append({'id': key, 'name': name.strip(), 'text': text})

@@ -41,7 +41,7 @@ def run(_):
         prefs.path.set_text('relative-invalid-path')
         prefs.save()
         assert prefs.message.get_text()
-        assert app.settings.get('font-size') == 11
+        assert app.settings.get('font-size') == 10
         prefs.path.set_text('/bin/sh')
         prefs.save()
         assert app.preferences is None
@@ -55,7 +55,7 @@ def run(_):
                                      (Gdk.KEY_minus, ctrl, 16),
                                      (Gdk.KEY_equal, ctrl, 17),
                                      (Gdk.KEY_KP_Subtract, ctrl, 16),
-                                     (Gdk.KEY_0, ctrl, 11)):
+                                     (Gdk.KEY_0, ctrl, 10)):
             assert app.window.key_controller.emit('key-pressed', key, 0, state)
             assert app.settings.get('font-size') == expected
             assert app.codex == '/bin/sh'
@@ -67,12 +67,12 @@ def run(_):
         app.change_font_size(-1)
         assert app.settings.get('font-size') == 8
         app.change_font_size(0)
-        assert app.settings.get('font-size') == 11
+        assert app.settings.get('font-size') == 10
         with patch('errand.ui.sys.platform', 'darwin'):
             assert app.window.key_controller.emit('key-pressed', Gdk.KEY_plus, 0, Gdk.ModifierType.META_MASK)
-            assert app.settings.get('font-size') == 12
-            assert app.window.key_controller.emit('key-pressed', Gdk.KEY_0, 0, Gdk.ModifierType.META_MASK)
             assert app.settings.get('font-size') == 11
+            assert app.window.key_controller.emit('key-pressed', Gdk.KEY_0, 0, Gdk.ModifierType.META_MASK)
+            assert app.settings.get('font-size') == 10
         assert view.session.codex is None  # Existing tabs retain their transport.
         new = app.window.new_tab()
         assert new.session.codex == '/bin/sh'

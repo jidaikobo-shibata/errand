@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 
-DEFAULTS = {'font-size': 11, 'codex-path': '', 'open-errand': '', 'shortcuts': {}}
+DEFAULTS = {'font-size': 10, 'codex-path': '', 'open-errand': '', 'shortcuts': {}}
 
 
 def validate(values):

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -5,6 +6,33 @@ from errand.bookmarks import Bookmarks
 
 
 class BookmarkTests(unittest.TestCase):
+    def test_unrepresentable_characters_are_rejected_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'bookmarks.json'
+            store = Bookmarks(path)
+            key = store.save('名前', '依頼\n続き')
+            original = path.read_bytes()
+            for invalid in ('前\x00後', '\ud800'):
+                for name, text in ((invalid, '依頼'), ('名前', invalid)):
+                    with self.assertRaises(ValueError):
+                        store.save(name, text, key)
+                    self.assertEqual(path.read_bytes(), original)
+                with self.assertRaises(ValueError):
+                    store.save('名前', '依頼', invalid)
+
+    def test_invalid_characters_in_saved_json_are_protected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'bookmarks.json'
+            for invalid in ('前\x00後', '\ud800'):
+                path.write_text(json.dumps([{'id': 'one', 'name': '名前', 'text': invalid}]))
+                original = path.read_bytes()
+                store = Bookmarks(path)
+                self.assertIsNotNone(store.error)
+                self.assertEqual(store.items, [])
+                with self.assertRaises(ValueError):
+                    store.save('新規', '依頼')
+                self.assertEqual(path.read_bytes(), original)
+
     def test_save_reload_update_delete_and_private_permissions(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'bookmarks.json'

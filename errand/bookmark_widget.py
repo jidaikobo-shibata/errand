@@ -71,6 +71,7 @@ class BookmarkMenu(Gtk.MenuButton):
         dialog = Adw.Window(title='定番のお願いを編集' if item else '定番のお願いを保存',
                             transient_for=parent or self.view.owner, modal=True,
                             default_width=480, default_height=400)
+        dialog.add_css_class('errand-window')
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12,
                        margin_top=16, margin_bottom=16, margin_start=16, margin_end=16)
         name = Adw.EntryRow(title='名前')
@@ -120,6 +121,7 @@ class BookmarkMenu(Gtk.MenuButton):
         self.menu.popdown()
         dialog = Adw.Window(title='定番のお願いを管理', transient_for=self.view.owner, modal=True,
                             default_width=480, default_height=400)
+        dialog.add_css_class('errand-window')
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12,
                        margin_top=16, margin_bottom=16, margin_start=16, margin_end=16)
         rows = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)

@@ -34,6 +34,7 @@ def check():
         target.attachments.clear()
         new = app.window.current.bookmark_button
         dialog, name, editor, save, error = new.edit(text='翻訳してください。')
+        assert dialog.has_css_class('errand-window')
         save.emit('clicked')
         assert error.get_text() and len(app.bookmarks.items) == 1
         name.set_text('翻訳')
@@ -46,6 +47,7 @@ def check():
         assert app.bookmarks.items[0]['id'] == key
         assert app.bookmarks.items[0]['name'] == '納品前の確認'
         manager = new.manage()
+        assert manager.has_css_class('errand-window')
         assert manager.get_visible()
         def find_delete(widget):
             if isinstance(widget, Gtk.Button) and widget.get_label() == '削除':

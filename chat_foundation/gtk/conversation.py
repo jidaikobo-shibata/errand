@@ -49,6 +49,7 @@ class Conversation(Gtk.Box):
         self.topic = "新しいお願い"
         self.messages = {}
         self._active_copy_group = None
+        self.summary_text = None
         self.message_widgets = []
         self._navigation_index = None
         self._highlight_widget = None
@@ -167,7 +168,14 @@ class Conversation(Gtk.Box):
             navigation.append(button)
             self.navigation_buttons[action] = button
         status_area.append(navigation)
-        status_area.append(self.status_scroll)
+        self.status_row = Gtk.Box(spacing=8)
+        self.status_scroll.set_hexpand(True)
+        self.status_row.append(self.status_scroll)
+        self.summary_copy_button = Gtk.Button(label='要約をコピー', visible=False, sensitive=False,
+                                              valign=Gtk.Align.CENTER)
+        self.summary_copy_button.connect('clicked', self.copy_summary)
+        self.status_row.append(self.summary_copy_button)
+        status_area.append(self.status_row)
         self.setup_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, visible=False)
         self.setup_description = label(app.product.setup_description)
         self.setup_box.append(self.setup_description)
@@ -293,8 +301,8 @@ class Conversation(Gtk.Box):
         self.copy_button = Gtk.Button(label="会話全文をコピー")
         self.copy_button.connect("clicked", self.copy)
         menu.append(self.copy_button)
-        self.summary_button = Gtk.Button(label="引き継ぎ用の要約をコピー", sensitive=False)
-        self.summary_button.connect("clicked", self.copy_summary)
+        self.summary_button = Gtk.Button(label="引き継ぎ用の要約を作成", sensitive=False)
+        self.summary_button.connect("clicked", self.create_summary)
         menu.append(self.summary_button)
         self.conversation_popover.set_child(menu)
         self.conversation_menu.set_popover(self.conversation_popover)
@@ -606,6 +614,7 @@ class Conversation(Gtk.Box):
         box.append(expander)
 
     def add_message(self, heading, text, markdown=False, complete=True):
+        self.invalidate_summary()
         if heading == 'あなた':
             self._active_copy_group = None
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -898,8 +907,12 @@ class Conversation(Gtk.Box):
             self.add_message("あなた", data["text"])
             self.update_model_controls()
         elif kind == "summary":
-            self.get_clipboard().set(data["text"])
+            self.summary_text = data['text']
+            self.summary_copy_button.set_sensitive(bool(self.summary_text))
+            self.summary_copy_button.set_visible(bool(self.summary_text))
+            self.status.set_text('要約しました。')
         elif kind in {"delta", "assistant"}:
+            self.invalidate_summary()
             item_id = data["item_id"]
             content = self.messages.get(item_id)
             if content is None:
@@ -936,6 +949,7 @@ class Conversation(Gtk.Box):
             for request_id in list(self.requests):
                 self.remove_request(request_id)
         elif kind == "reset":
+            self.invalidate_summary()
             self.prompt_history.clear()
             self._prompt_history_index = None
             self.clear_navigation_highlight()
@@ -1061,12 +1075,26 @@ class Conversation(Gtk.Box):
         self.get_clipboard().set(self.conversation_text())
         self.status.set_text("会話全文をコピーしました。")
 
-    def copy_summary(self, _):
+    def invalidate_summary(self):
+        self.summary_text = None
+        if hasattr(self, 'summary_copy_button'):
+            self.summary_copy_button.set_sensitive(False)
+            self.summary_copy_button.set_visible(False)
+
+    def create_summary(self, _):
         self.conversation_popover.popdown()
         try:
             entry = self.selected_model()
             if entry is None:
                 raise ValueError("モデルを選んでください。")
+            self.invalidate_summary()
             self.session.summarize(self.conversation_text(), model=entry["model"], effort=self.selected_effort())
         except Exception as error:
             self.status.set_text(str(error))
+
+    def copy_summary(self, _):
+        self.conversation_popover.popdown()
+        if self.summary_text:
+            self.get_clipboard().set(self.summary_text)
+            self.invalidate_summary()
+            self.status.set_text('要約をコピーしました。')

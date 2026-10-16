@@ -439,9 +439,9 @@ class Session:
                 text = "\n\n".join(answers.values()).strip()
                 if data.get("status") == "completed" and text and not errors:
                     self._emit("summary", text="以下は前の会話からの引き継ぎです。\n\n" + text)
-                    message = "引き継ぎ用の要約をコピーしました。"
+                    message = "要約しました。"
                 else:
-                    message = "要約をコピーしませんでした。" + (errors[-1] if errors else "中断または作成に失敗しました。")
+                    message = "要約を作成できませんでした。" + (errors[-1] if errors else "中断または作成に失敗しました。")
                 self._emit("state", busy=False, message=message)
 
         summary = Session(receive, codex=self.codex, command=self.command, instructions=self.summary_instructions,

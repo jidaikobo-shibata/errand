@@ -419,7 +419,10 @@ def tick():
             assert window.summary_button.get_sensitive()
             window.summary_button.emit("clicked")
             stage = 21
-        elif stage == 21 and not window.session.busy and len(tab_checks["copied"]) == 2:
+        elif stage == 21 and not window.session.busy and window.summary_text:
+            assert len(tab_checks['copied']) == 1
+            assert window.summary_copy_button.get_sensitive()
+            window.summary_copy_button.emit('clicked')
             assert len(tab_checks["copied"]) == 2
             assert tab_checks["copied"][1].startswith("以下は前の会話からの引き継ぎです。")
             assert window.conversation_text() == tab_checks["summary_source"]

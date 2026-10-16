@@ -25,7 +25,8 @@ def verify():
         assert len(view.message_widgets) == 8
         navigation = view.navigation_buttons['previous'].get_parent()
         assert navigation.get_parent().get_first_child() is navigation
-        assert navigation.get_next_sibling() is view.status_scroll
+        assert navigation.get_next_sibling() is view.status_row
+        assert view.status_scroll.get_parent() is view.status_row
         assert view.navigation_index() == 7
         view.navigation_buttons['previous'].grab_focus()
         assert app.window.key_controller.emit('key-pressed', Gdk.KEY_Up, 0, Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK)

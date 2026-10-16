@@ -8,10 +8,12 @@ class BookmarkMenu(Gtk.MenuButton):
         self.view = conversation
         self.store = conversation.app.bookmarks
         self.update_property([Gtk.AccessibleProperty.LABEL], ['定番のお願い'])
-        icon = Gtk.DrawingArea(width_request=16, height_request=16)
+        icon = Gtk.DrawingArea(width_request=16, height_request=16,
+                               halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
         def draw(widget, context, width, height):
             color = widget.get_color()
             context.set_source_rgba(color.red, color.green, color.blue, color.alpha)
+            context.translate((width - 16) / 2, (height - 16) / 2)
             context.set_line_width(1.5)
             context.move_to(4, 2)
             for x, y in ((12, 2), (12, 14), (8, 10), (4, 14)):

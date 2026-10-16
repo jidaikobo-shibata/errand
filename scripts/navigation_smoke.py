@@ -4,10 +4,12 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from errand.ui import Application, GLib, Gdk
+from smoke_support import foreground_on_activate, input_ready, wait_for
 
 root = Path(__file__).resolve().parent.parent
 app = Application(isolated=True, command=[sys.executable, str(root / 'tests/fake_server.py')])
 failures = []
+foreground_on_activate(app)
 
 
 def populate(_):
@@ -16,7 +18,12 @@ def populate(_):
     for index in range(8):
         view.add_message('あなた' if index % 2 == 0 else 'Codex', ('発言%d\n' % index) * 12)
     view.add_message('エラー', '操作ログ')
-    GLib.timeout_add(100, verify)
+    def ready():
+        adjustment = view.scroll.get_vadjustment()
+        return (app.window.props.is_active and view.message_positions()[-1] > 0
+                and adjustment.get_upper() > adjustment.get_page_size()
+                and not view._scroll_layout and view._scroll_idle is None)
+    wait_for(app, ready, verify, failures, 'message layout before navigation')
 
 
 def verify():
@@ -28,7 +35,8 @@ def verify():
         assert navigation.get_next_sibling() is view.status_row
         assert view.status_scroll.get_parent() is view.status_row
         assert view.navigation_index() == 7
-        view.navigation_buttons['previous'].grab_focus()
+        assert view.navigation_buttons['previous'].grab_focus()
+        assert view.navigation_buttons['previous'].has_focus()
         assert app.window.key_controller.emit('key-pressed', Gdk.KEY_Up, 0, Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK)
         assert view.navigation_index() == 6
         assert view.message_widgets[6].has_css_class('errand-navigation-target')
@@ -106,7 +114,8 @@ def verify_clear():
     return False
 
 
-app.connect('activate', populate)
+app.connect('activate', lambda _: wait_for(app, lambda: input_ready(app),
+                                         lambda: populate(app), failures, 'initial conversation focus'))
 app.run([])
 if failures:
     raise failures[0]

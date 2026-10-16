@@ -64,14 +64,16 @@ brew install gtk4 libadwaita pygobject3
 ```
 
 リポジトリのルートで実行すると、Finderから開けるアプリを生成できます。
-ビルド自体はPython標準ライブラリだけで動きます。
+ビルドにはPython標準ライブラリとmacOSのCommand Line Tools（clang）を使います。
 
 ```bash
 python3 scripts/build_macos.py
 open dist/macos/Errand.app
 ```
 
-生成物にはチャットアプリのソースだけをコピーします。認証情報・設定・作業記録は含めません。
+生成物にはチャットアプリのソースと小さなmacOS用ランチャーを入れます。
+ランチャーはErrandのアプリ識別を保ったままHomebrewのPythonを読み込みます。
+認証情報・設定・作業記録は含めません。
 生成後は元のリポジトリを移動しても起動できますが、Homebrewの実行環境は引き続き必要です。
 Apple SiliconとIntelの標準Homebrew配置から、GTKを使えるPythonを探します。
 CodexもHomebrewの標準配置やnvmから探します。

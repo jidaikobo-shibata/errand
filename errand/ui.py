@@ -268,6 +268,7 @@ class Application(Adw.Application):
         self.preferences = None
         self.font_css = Gtk.CssProvider()
         self.mac_shortcut = None
+        self.mac_reopen = None
         self.registered_shortcut = ""
         self.shortcut_error = None
         self.connect("activate", self.activate_window)
@@ -383,12 +384,20 @@ class Application(Adw.Application):
             except (ValueError, OSError, RuntimeError) as exc:
                 self.shortcut_error = str(exc)
                 self.window.current.status.set_text(self.shortcut_error)
+            if sys.platform == 'darwin':
+                from .macos_reopen import MacReopen
+                try:
+                    self.mac_reopen = MacReopen(lambda: GLib.idle_add(self.activate))
+                except (OSError, RuntimeError) as exc:
+                    self.window.current.status.set_text(str(exc))
             self.hold()
         self.window.present()
         if self.smoke:
             GLib.timeout_add(250, lambda: (self.quit(), False)[1])
 
     def shutdown_session(self, _):
+        if self.mac_reopen:
+            self.mac_reopen.close()
         self.runtime.close()
         if self.mac_shortcut:
             self.mac_shortcut.close()

@@ -48,6 +48,7 @@ class Conversation(Gtk.Box):
         self.closed = False
         self.topic = "新しいお願い"
         self.messages = {}
+        self._active_copy_group = None
         self.message_widgets = []
         self._navigation_index = None
         self._highlight_widget = None
@@ -605,6 +606,8 @@ class Conversation(Gtk.Box):
         box.append(expander)
 
     def add_message(self, heading, text, markdown=False, complete=True):
+        if heading == 'あなた':
+            self._active_copy_group = None
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.add_css_class("errand-message")
         if heading == "あなた":
@@ -624,11 +627,16 @@ class Conversation(Gtk.Box):
             content.connect("rendered", lambda *_: self.queue_scroll_bottom())
         box.append(content)
         if heading == "Codex":
-            copy_button = Gtk.Button(tooltip_text='この発言をコピー', halign=Gtk.Align.START)
+            if self._active_copy_group is None:
+                self._active_copy_group = []
+            group = self._active_copy_group
+            group.append(content)
+            content.copy_group = group
+            copy_button = Gtk.Button(tooltip_text='この回答をコピー', halign=Gtk.Align.START)
             copy_button.set_visible(complete and bool(text))
             content.message_copy_button = copy_button
             copy_button.add_css_class('flat')
-            copy_button.update_property([Gtk.AccessibleProperty.LABEL], [heading + 'の発言をコピー'])
+            copy_button.update_property([Gtk.AccessibleProperty.LABEL], [heading + 'の回答をコピー'])
             icon = Gtk.DrawingArea(width_request=20, height_request=20)
             def draw_copy(widget, context, width, height):
                 color = widget.get_color()
@@ -661,12 +669,14 @@ class Conversation(Gtk.Box):
             icon.set_draw_func(draw_copy)
             copy_button.set_child(icon)
             def copy_message(_):
-                value = content.get_copy_text() if isinstance(content, MarkdownView) else content.get_text()
+                value = '\n\n'.join(part.get_copy_text() if isinstance(part, MarkdownView) else part.get_text()
+                                    for part in group if (part.get_source() if isinstance(part, MarkdownView) else part.get_text()))
                 self.copy_message_to_clipboard(value)
                 copy_button.set_tooltip_text('コピーしました')
-                copy_button.update_property([Gtk.AccessibleProperty.LABEL], [heading + 'の発言をコピーしました'])
+                copy_button.update_property([Gtk.AccessibleProperty.LABEL], [heading + 'の回答をコピーしました'])
             copy_button.connect('clicked', copy_message)
             box.append(copy_button)
+            self.update_copy_group(group, complete)
         if heading in {"あなた", "Codex"}:
             row = Gtk.Overlay()
             row.add_css_class("errand-message-row")
@@ -678,6 +688,16 @@ class Conversation(Gtk.Box):
         self.queue_scroll_bottom()
         self.update_navigation()
         return content
+
+    def update_copy_group(self, group, complete):
+        last = None
+        for part in group:
+            part.message_copy_button.set_visible(False)
+            text = part.get_source() if isinstance(part, MarkdownView) else part.get_text()
+            if text:
+                last = part
+        if complete and last is not None:
+            last.message_copy_button.set_visible(True)
 
     def copy_message_to_clipboard(self, text):
         self.get_clipboard().set(text)
@@ -887,7 +907,7 @@ class Conversation(Gtk.Box):
                 self.messages[item_id] = content
             content.set_source(content.get_source() + data["text"] if kind == "delta" else data["text"],
                                immediate=kind == "assistant")
-            content.message_copy_button.set_visible(kind == 'assistant' and bool(content.get_source()))
+            self.update_copy_group(content.copy_group, complete=False)
             self.queue_scroll_bottom()
         elif kind == "progress":
             item = data["item"]
@@ -899,8 +919,7 @@ class Conversation(Gtk.Box):
         elif kind == "state":
             busy = data["busy"]
             if not busy:
-                for message in self.messages.values():
-                    message.message_copy_button.set_visible(bool(message.get_source()))
+                self.update_copy_group(self._active_copy_group or [], complete=True)
             self.status.set_text(data["message"])
             self.send_button.set_sensitive(not busy)
             self.stop.set_sensitive(busy)
@@ -928,6 +947,7 @@ class Conversation(Gtk.Box):
             while (child := self.history.get_first_child()) is not None:
                 self.history.remove(child)
             self.messages.clear()
+            self._active_copy_group = None
             self.update_navigation()
             for request_id in list(self.requests):
                 self.remove_request(request_id)

@@ -35,12 +35,27 @@ def check():
         streaming = view.messages['streaming']
         assert not streaming.message_copy_button.get_visible()
         view.event('assistant', {'item_id': 'streaming', 'text': '生成完了'})
-        assert streaming.message_copy_button.get_visible()
+        assert not streaming.message_copy_button.get_visible()
+        view.event('delta', {'item_id': 'final', 'text': '| A | B |\n| --- | --- |\n| x | y |'})
+        final = view.messages['final']
+        assert not streaming.message_copy_button.get_visible()
+        assert not final.message_copy_button.get_visible()
+        view.event('assistant', {'item_id': 'final', 'text': '| A | B |\n| --- | --- |\n| x | y |'})
+        assert not final.message_copy_button.get_visible()
+        view.event('state', {'busy': False, 'message': '入力を待っています。'})
+        assert not streaming.message_copy_button.get_visible()
+        assert final.message_copy_button.get_visible()
+        final.message_copy_button.emit('clicked')
+        assert copied[-1] == '生成完了\n\nA\tB\nx\ty'
+        view.add_message('あなた', '次のお願い')
         view.event('delta', {'item_id': 'interrupted', 'text': '中断までの内容'})
         partial = view.messages['interrupted']
         assert not partial.message_copy_button.get_visible()
         view.event('state', {'busy': False, 'message': '中断しました。'})
         assert partial.message_copy_button.get_visible()
+        assert final.message_copy_button.get_visible()
+        partial.message_copy_button.emit('clicked')
+        assert copied[-1] == '中断までの内容'
         print('PASS: Codex message copy, TSV tables, nested quotes, code, streaming freshness and no user copy button')
     except Exception as error:
         import traceback

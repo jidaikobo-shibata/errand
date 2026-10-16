@@ -7,7 +7,8 @@ from pathlib import Path
 import sys
 import tempfile
 
-DEFAULTS = {'font-size': 10, 'codex-path': '', 'open-errand': '', 'shortcuts': {}}
+DEFAULTS = {'font-size': 10, 'codex-path': '', 'open-errand': '', 'shortcuts': {},
+            'approval-reviewer': 'user'}
 
 
 def validate(values):
@@ -24,6 +25,8 @@ def validate(values):
             or any(not isinstance(value, str) for value in shortcuts.values())):
         raise ValueError('キーボード・ショートカットの設定が正しくありません。')
     result['shortcuts'] = dict(shortcuts)
+    if result['approval-reviewer'] not in ('user', 'auto_review'):
+        raise ValueError('承認方法の設定が正しくありません。')
     path = result['codex-path']
     if path and (not Path(path).is_absolute() or not Path(path).is_file() or not os.access(path, os.X_OK)):
         raise ValueError('Codexの実行可能なファイルを絶対パスで指定してください。')
@@ -69,6 +72,12 @@ class Settings:
         # Font changes must not reject or modify a previously stored Codex path.
         values = {key: self.get(key) for key in DEFAULTS}
         checked = validate({**values, 'font-size': size, 'codex-path': ''})
+        checked['codex-path'] = values['codex-path']
+        self._store(checked)
+
+    def set_approval_reviewer(self, reviewer):
+        values = {key: self.get(key) for key in DEFAULTS}
+        checked = validate({**values, 'approval-reviewer': reviewer, 'codex-path': ''})
         checked['codex-path'] = values['codex-path']
         self._store(checked)
 

@@ -4,7 +4,7 @@ import sys
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from errand.protocol import CodexMissing, RpcError, server_command
 from errand.session import Session
@@ -12,6 +12,68 @@ from errand.session import Session
 ROOT = Path(__file__).resolve().parent.parent
 
 class SessionTests(unittest.TestCase):
+    def confirmation(self, request_id='confirm', **changes):
+        return {'id': request_id, 'method': 'mcpServer/elicitation/request', 'params': {
+            'mode': 'form', 'serverName': 'browser', 'message': 'Allow browser_click?',
+            'requestedSchema': {'type': 'object', 'properties': {}}, **changes}}
+
+    def test_remembered_mcp_confirmation_is_exact_and_session_local(self):
+        server = self.session._server = Mock()
+        self.session._request(0, self.confirmation())
+        self.assertTrue(self.session.answer('confirm', {'action': 'accept', 'content': {}}, remember=True))
+        self.session._request(0, self.confirmation('repeat', turnId='next'))
+        server.respond.assert_called_with('repeat', {'action': 'accept', 'content': {}})
+        self.assertNotIn('repeat', self.session._requests)
+        for request in (self.confirmation('other-server', serverName='other'),
+                        self.confirmation('other-message', message='Allow browser_navigate?'),
+                        self.confirmation('other-meta', _meta={'tool': 'navigate'}),
+                        self.confirmation('with-input', requestedSchema={'type': 'object', 'properties': {'name': {'type': 'string'}}})):
+            self.session._request(0, request)
+            self.assertIn(request['id'], self.session._requests)
+        self.session.reset()
+        self.assertEqual(self.session._mcp_confirmations, set())
+        self.session._server = Mock()
+        self.session._request(self.session._generation, self.confirmation('new-conversation'))
+        self.assertIn('new-conversation', self.session._requests)
+
+    def test_once_decline_and_failed_reply_never_add_mcp_grants(self):
+        server = self.session._server = Mock()
+        for result, remember in (({'action': 'accept', 'content': {}}, False),
+                                 ({'action': 'decline', 'content': None}, True),
+                                 ({'action': 'cancel', 'content': None}, True)):
+            self.session._request(0, self.confirmation())
+            self.session.answer('confirm', result, remember=remember)
+            self.assertFalse(self.session._mcp_confirmations)
+        self.session._request(0, self.confirmation())
+        server.respond.side_effect = OSError('write failed')
+        with self.assertRaises(OSError):
+            self.session.answer('confirm', {'action': 'accept', 'content': {}}, remember=True)
+        self.assertFalse(self.session._mcp_confirmations)
+        self.assertIn('confirm', self.session._requests)
+
+    def test_mcp_elicitation_waits_for_explicit_user_answer_even_with_auto_review(self):
+        self.catalogue()
+        self.session.set_approval_reviewer('auto_review')
+        self.session.send('mcp-form', model='fake-fast', effort='low')
+        self.wait(lambda: any(k == 'request' and d['method'] == 'mcpServer/elicitation/request' for k, d in self.events))
+        request = next(d for k, d in self.events if k == 'request')
+        self.assertEqual(request['params']['serverName'], 'browser-test')
+        self.assertIn('mcp-1', self.session._requests)
+        self.assertTrue(self.session.busy)
+        self.assertTrue(self.session.answer('mcp-1', {'action': 'accept', 'content': {'allow': True}}))
+        self.finished()
+        text = next(d['text'] for k, d in self.events if k == 'assistant')
+        self.assertEqual(json.loads(text)['result'], {'action': 'accept', 'content': {'allow': True}})
+
+    def test_mcp_url_request_can_be_declined(self):
+        self.catalogue()
+        self.session.send('mcp-url', model='fake-fast', effort='low')
+        self.wait(lambda: any(k == 'request' for k, _ in self.events))
+        self.assertTrue(self.session.answer('mcp-1', {'action': 'decline', 'content': None}))
+        self.finished()
+        text = next(d['text'] for k, d in self.events if k == 'assistant')
+        self.assertEqual(json.loads(text)['result'], {'action': 'decline', 'content': None})
+
     def setUp(self):
         self.events = []
         self.changed = threading.Condition()

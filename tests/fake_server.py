@@ -87,6 +87,15 @@ for line in sys.stdin:
             send({"id": "permissions-1", "method": "item/permissions/requestApproval", "params": {
                 "threadId": "thread-1", "turnId": f"turn-{turn}", "itemId": "p-1", "startedAtMs": 0,
                 "cwd": "/tmp", "reason": "検証出力の作成", "permissions": {"fileSystem": {"write": ["/tmp/test-output.pdf"]}}}})
+        elif text.startswith("mcp-"):
+            pending = "mcp"
+            params = {"threadId": "thread-1", "serverName": "browser-test", "message": "ブラウザで確認を続けますか？"}
+            if text == "mcp-url":
+                params.update(mode="url", url="https://example.com/confirm", elicitationId="test-elicitation")
+            else:
+                params.update(mode="form", requestedSchema={"type": "object", "properties": {
+                    "allow": {"type": "boolean", "title": "ブラウザの使用"}}, "required": ["allow"]})
+            send({"id": "mcp-1", "method": "mcpServer/elicitation/request", "params": params})
         elif text == "unknown":
             pending = "unknown"
             send({"id": "unknown-1", "method": "unknown/request", "params": {}})

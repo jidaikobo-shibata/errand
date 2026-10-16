@@ -8,6 +8,30 @@ from errand.macos_shortcut import KEYS
 
 
 class SettingsTests(unittest.TestCase):
+    def test_approval_reviewer_persists_and_survives_other_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'settings.json'
+            settings = Settings(path=path)
+            self.assertEqual(settings.get('approval-reviewer'), 'user')
+            settings.save({'font-size': 12})
+            settings.set_approval_reviewer('auto_review')
+            settings.set_font_size(14)
+            self.assertEqual(Settings(path=path).get('approval-reviewer'), 'auto_review')
+            original = path.read_bytes()
+            with self.assertRaises(ValueError):
+                settings.set_approval_reviewer('never')
+            self.assertEqual(path.read_bytes(), original)
+            settings.set_approval_reviewer('user')
+            self.assertEqual(Settings(path=path).get('approval-reviewer'), 'user')
+
+    def test_approval_update_preserves_missing_codex_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'settings.json'
+            path.write_text('{"codex-path":"/missing/codex"}')
+            settings = Settings(path=path)
+            settings.set_approval_reviewer('auto_review')
+            self.assertEqual(Settings(path=path).get('codex-path'), '/missing/codex')
+
     def test_roundtrip_private_file_and_unknown_keys_are_not_saved(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'nested/settings.json'

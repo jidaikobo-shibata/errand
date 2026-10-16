@@ -183,6 +183,14 @@ env GSETTINGS_BACKEND=memory python3 scripts/preferences_smoke.py
 env GSETTINGS_BACKEND=memory python3 scripts/bookmarks_smoke.py
 ```
 
+MCPからのフォーム・URL確認と承認方法の記憶も、独立したWayland環境で検証できます。
+実MCP・ブラウザ・モデルへの接続は行いません。
+
+```bash
+env GSETTINGS_BACKEND=memory python3 scripts/elicitation_smoke.py
+env GSETTINGS_BACKEND=memory python3 scripts/approval_settings_smoke.py
+```
+
 ショートカットの変更・無効化・既定値への復帰と重複検出の検証:
 
 ```bash

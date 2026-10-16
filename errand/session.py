@@ -70,6 +70,7 @@ class Session:
         self._loading_models = False
         self._catalogue_server = None
         self._requests = {}
+        self._mcp_confirmations = set()
         self._items = {}
         self._scratch = tempfile.TemporaryDirectory(prefix="errand-")
 
@@ -360,21 +361,44 @@ class Session:
         supported = {
             "item/commandExecution/requestApproval", "item/fileChange/requestApproval",
             "item/tool/requestUserInput", "item/permissions/requestApproval",
+            "mcpServer/elicitation/request",
         }
         if method not in supported:
             self._server.reject(message["id"])
             self._emit("error", message=f"未対応の要求を拒否しました: {method}")
             return
-        self._requests[message["id"]] = message
+        from .elicitation import confirmation_key
+        with self._lock:
+            if not self._current(generation):
+                return
+            key = confirmation_key(message.get('params', {})) if method == 'mcpServer/elicitation/request' else None
+            if key is not None and key in self._mcp_confirmations:
+                self._server.respond(message['id'], {'action': 'accept', 'content': {}})
+                return
+            self._requests[message["id"]] = message
         params = dict(message.get("params", {}))
         params["item"] = self._items.get(params.get("itemId"), {})
         self._emit("request", request_id=message["id"], method=method, params=params)
 
-    def answer(self, request_id, result):
-        if request_id not in self._requests:
-            return False
-        self._server.respond(request_id, result)
-        self._requests.pop(request_id, None)
+    def answer(self, request_id, result, remember=False):
+        from .elicitation import confirmation_key
+        with self._lock:
+            message = self._requests.get(request_id)
+            if message is None:
+                return False
+            key = (confirmation_key(message.get('params', {})) if remember
+                   and message['method'] == 'mcpServer/elicitation/request'
+                   and result == {'action': 'accept', 'content': {}} else None)
+            added = key is not None and key not in self._mcp_confirmations
+            if added:
+                self._mcp_confirmations.add(key)
+            try:
+                self._server.respond(request_id, result)
+            except Exception:
+                if added:
+                    self._mcp_confirmations.discard(key)
+                raise
+            self._requests.pop(request_id, None)
         self._emit("request_resolved", request_id=request_id)
         return True
 
@@ -409,6 +433,7 @@ class Session:
             self._thread_id = self._turn_id = None
             self._requests.clear()
             self._items.clear()
+            self._mcp_confirmations.clear()
             self._emit("requests_clear")
             self._emit("error", message=error)
             self._emit("state", busy=False, message="接続が終了しました。次の送信で新しい会話として再接続します。")
@@ -480,6 +505,7 @@ class Session:
             self._model = self._effort = None
             self._requests.clear()
             self._items.clear()
+            self._mcp_confirmations.clear()
         if old:
             self._background_cleanup(old.close)
         self._emit("reset")
@@ -489,6 +515,7 @@ class Session:
             if self._closed:
                 return
             self._closed = True
+            self._mcp_confirmations.clear()
             self._generation += 1
             server, self._server = self._server, None
             catalogue, self._catalogue_server = self._catalogue_server, None

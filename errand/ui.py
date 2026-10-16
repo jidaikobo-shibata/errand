@@ -20,6 +20,7 @@ from .settings import DEFAULTS, validate
 from .shortcuts import ACTIONS, bindings, key_signature, signature, validate_shortcuts
 from .bookmarks import Bookmarks
 from .bookmark_widget import BookmarkMenu
+from .elicitation_widget import ElicitationView
 
 
 STARTUP_TIPS = (
@@ -99,9 +100,13 @@ class Conversation(Gtk.Box):
         self.model_status = status_label("現在のモデルと推論の強さを取得中…")
         selection.append(self.model_status)
         self.approval_choice = Gtk.DropDown.new_from_strings(["自分で承認", "自動レビュー"])
+        reviewer = app.settings.get('approval-reviewer')
+        self.session.set_approval_reviewer(reviewer)
+        self.approval_choice.set_selected(1 if reviewer == 'auto_review' else 0)
+        self._updating_approval = False
         self.approval_choice.update_property([Gtk.AccessibleProperty.LABEL], ["このタブの承認方法"])
         self.approval_choice.connect("notify::selected", self.approval_changed)
-        self.approval_choice.set_tooltip_text("このタブの承認方法。自動レビューはApprove for meに相当し、全許可ではありません。")
+        self.approval_choice.set_tooltip_text("このタブの承認方法。選択は新しいタブと次回起動にも引き継ぎます。自動レビューはApprove for meに相当し、全許可ではありません。")
         self.model_popover = Gtk.Popover(autohide=True)
         self.model_pointer = Gtk.GestureClick(button=0)
         self.model_pointer.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
@@ -577,10 +582,18 @@ class Conversation(Gtk.Box):
         self.update_model_label()
 
     def approval_changed(self, *_):
+        if self._updating_approval:
+            return
+        previous = self.session.approvals_reviewer
         try:
             self.session.set_approval_reviewer("auto_review" if self.approval_choice.get_selected() == 1 else "user")
+            self.app.settings.set_approval_reviewer(self.session.approvals_reviewer)
             self.update_model_label()
         except Exception as error:
+            self.session.approvals_reviewer = previous
+            self._updating_approval = True
+            self.approval_choice.set_selected(1 if previous == 'auto_review' else 0)
+            self._updating_approval = False
             self.status.set_text(str(error))
 
     def approval_details(self, box, params):
@@ -900,12 +913,17 @@ class Conversation(Gtk.Box):
         if self.page:
             self.page.set_needs_attention(True)
         self.request_box.append(box)
-        def respond(result):
+        def respond(result, remember=False):
             try:
-                self.session.answer(request_id, result)
+                if remember:
+                    self.session.answer(request_id, result, remember=True)
+                else:
+                    self.session.answer(request_id, result)
             except Exception as error:
                 self.status.set_text(str(error))
-        if method == "item/tool/requestUserInput":
+        if method == "mcpServer/elicitation/request":
+            box.append(ElicitationView(params, respond, lambda result: respond(result, remember=True)))
+        elif method == "item/tool/requestUserInput":
             box.append(label("Codexからの質問"))
             entries = []
             for question in params["questions"]:
@@ -956,7 +974,13 @@ class Conversation(Gtk.Box):
         if not self.closed and self.owner.current is self and self.requests:
             box = next(reversed(self.requests.values()))
             target = box.get_last_child()
-            if isinstance(target, Gtk.Box):
+            if isinstance(target, ElicitationView):
+                fallback = target.decline_button
+                target = (next(iter(target.controls.values()), None)
+                          if target.mode == 'form' else getattr(target, 'browser_button', None)) or fallback
+                if isinstance(target, Gtk.Box):
+                    target = target.get_first_child() or fallback
+            elif isinstance(target, Gtk.Box):
                 target = target.get_first_child()
             target.grab_focus()
         return False
@@ -1302,7 +1326,7 @@ class Application(Adw.Application):
             self.window.refresh_shortcut_labels()
 
     def save_preferences(self, values):
-        values = validate(values)
+        values = validate({**{key: self.settings.get(key) for key in DEFAULTS}, **values})
         validate_shortcuts(values['shortcuts'], values['open-errand'])
         old_shortcut = self.registered_shortcut
         self.register_shortcut(values["open-errand"])

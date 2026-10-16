@@ -616,7 +616,7 @@ class Conversation(Gtk.Box):
         expander.set_child(detail_scroll)
         box.append(expander)
 
-    def add_message(self, heading, text, markdown=False):
+    def add_message(self, heading, text, markdown=False, complete=True):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.add_css_class("errand-message")
         if heading == "あなた":
@@ -635,6 +635,50 @@ class Conversation(Gtk.Box):
         if markdown:
             content.connect("rendered", lambda *_: self.queue_scroll_bottom())
         box.append(content)
+        if heading == "Codex":
+            copy_button = Gtk.Button(tooltip_text='この発言をコピー', halign=Gtk.Align.START)
+            copy_button.set_visible(complete and bool(text))
+            content.message_copy_button = copy_button
+            copy_button.add_css_class('flat')
+            copy_button.update_property([Gtk.AccessibleProperty.LABEL], [heading + 'の発言をコピー'])
+            icon = Gtk.DrawingArea(width_request=20, height_request=20)
+            def draw_copy(widget, context, width, height):
+                color = widget.get_color()
+                context.set_source_rgba(color.red, color.green, color.blue, color.alpha)
+                context.set_line_width(1.4)
+                context.set_line_cap(1)
+                context.set_line_join(1)
+                # Rear sheet, with the covered edges omitted.
+                context.move_to(7, 5)
+                context.line_to(7, 4)
+                context.curve_to(7, 2.9, 7.9, 2, 9, 2)
+                context.line_to(16, 2)
+                context.curve_to(17.1, 2, 18, 2.9, 18, 4)
+                context.line_to(18, 11)
+                context.curve_to(18, 12.1, 17.1, 13, 16, 13)
+                context.line_to(15, 13)
+                context.stroke()
+                # Front sheet, with matching rounded corners.
+                context.move_to(4, 7)
+                context.line_to(11, 7)
+                context.curve_to(12.1, 7, 13, 7.9, 13, 9)
+                context.line_to(13, 16)
+                context.curve_to(13, 17.1, 12.1, 18, 11, 18)
+                context.line_to(4, 18)
+                context.curve_to(2.9, 18, 2, 17.1, 2, 16)
+                context.line_to(2, 9)
+                context.curve_to(2, 7.9, 2.9, 7, 4, 7)
+                context.close_path()
+                context.stroke()
+            icon.set_draw_func(draw_copy)
+            copy_button.set_child(icon)
+            def copy_message(_):
+                value = content.get_copy_text() if isinstance(content, MarkdownView) else content.get_text()
+                self.copy_message_to_clipboard(value)
+                copy_button.set_tooltip_text('コピーしました')
+                copy_button.update_property([Gtk.AccessibleProperty.LABEL], [heading + 'の発言をコピーしました'])
+            copy_button.connect('clicked', copy_message)
+            box.append(copy_button)
         if heading in {"あなた", "Codex"}:
             row = Gtk.Overlay()
             row.add_css_class("errand-message-row")
@@ -646,6 +690,9 @@ class Conversation(Gtk.Box):
         self.queue_scroll_bottom()
         self.update_navigation()
         return content
+
+    def copy_message_to_clipboard(self, text):
+        self.get_clipboard().set(text)
 
     def message_positions(self):
         positions = []
@@ -848,10 +895,11 @@ class Conversation(Gtk.Box):
             item_id = data["item_id"]
             content = self.messages.get(item_id)
             if content is None:
-                content = self.add_message("Codex", "", markdown=True)
+                content = self.add_message("Codex", "", markdown=True, complete=False)
                 self.messages[item_id] = content
             content.set_source(content.get_source() + data["text"] if kind == "delta" else data["text"],
                                immediate=kind == "assistant")
+            content.message_copy_button.set_visible(kind == 'assistant' and bool(content.get_source()))
             self.queue_scroll_bottom()
         elif kind == "progress":
             item = data["item"]
@@ -862,6 +910,9 @@ class Conversation(Gtk.Box):
             self.add_message("エラー", data["message"])
         elif kind == "state":
             busy = data["busy"]
+            if not busy:
+                for message in self.messages.values():
+                    message.message_copy_button.set_visible(bool(message.get_source()))
             self.status.set_text(data["message"])
             self.send_button.set_sensitive(not busy)
             self.stop.set_sensitive(busy)

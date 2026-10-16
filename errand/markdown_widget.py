@@ -1,4 +1,6 @@
 """Markdown prose and framed, independently copyable fenced code blocks."""
+import csv
+import io
 from gi.repository import GObject, GLib, Gtk, Pango
 
 from .markdown import blocks, inline, render
@@ -84,6 +86,14 @@ class TableBlock(Gtk.Grid):
     def get_label(self):
         return "\n".join(cell.get_label() for cell in self.cells)
 
+    def get_copy_text(self):
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter='\t', lineterminator='\n')
+        columns = len(self.block.rows[0])
+        for start in range(0, len(self.cells), columns):
+            writer.writerow(cell.get_text() for cell in self.cells[start:start + columns])
+        return output.getvalue().removesuffix('\n')
+
 
 class QuoteBlock(Gtk.Box):
     def __init__(self, block, depth):
@@ -110,6 +120,9 @@ class QuoteBlock(Gtk.Box):
     def get_label(self):
         return self.content.get_label()
 
+    def get_copy_text(self):
+        return self.content.get_copy_text()
+
 
 class MarkdownView(Gtk.Box):
     __gsignals__ = {"rendered": (GObject.SignalFlags.RUN_LAST, None, ())}
@@ -124,6 +137,13 @@ class MarkdownView(Gtk.Box):
 
     def get_source(self):
         return self._source
+
+    def get_copy_text(self):
+        if self._pending is not None:
+            self.set_source(self._source, immediate=True)
+        return '\n'.join(part.get_copy_text() if hasattr(part, 'get_copy_text')
+                         else part.block.text.rstrip('\r\n') if isinstance(part, CodeBlock)
+                         else part.get_text() for part in self._parts)
 
     def get_text(self):
         return "\n".join(part.code.get_text() if isinstance(part, CodeBlock) else part.get_text()

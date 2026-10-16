@@ -22,7 +22,9 @@ def check():
             view.show_request({'request_id': 'form', 'method': 'mcpServer/elicitation/request', 'params': {
                 'mode': 'form', 'serverName': 'browser-test', 'message': 'ブラウザで確認しますか？',
                 'requestedSchema': {'type': 'object', 'properties': {'allow': {'type': 'boolean'},
-                    'width': {'type': 'integer', 'minimum': 320}}, 'required': ['allow', 'width']}}})
+                    'width': {'type': 'integer', 'minimum': 320},
+                    'optional_choices': {'type': 'array', 'items': {'type': 'string', 'enum': ['mobile', 'desktop']},
+                                         'minItems': 1}}, 'required': ['allow', 'width']}}})
             form = view.requests['form'].get_last_child()
             assert isinstance(form, ElicitationView)
             assert form.accept_button.get_label() == '回答して続行'

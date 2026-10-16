@@ -155,12 +155,13 @@ def content(schema, values):
             if not isinstance(raw, bool): raise ValueError(f'「{title}」を選択してください。')
             value = raw
         else:
+            if isinstance(raw, list) and not raw and key not in required:
+                continue
             choices = [v for v, _ in options(spec['items'])]
             if (not isinstance(raw, list) or not all(v in choices for v in raw)
                     or len(set(raw)) != len(raw) or len(raw) < (spec.get('minItems') or 0)
                     or len(raw) > (spec.get('maxItems') if spec.get('maxItems') is not None else 100)):
                 raise ValueError(f'「{title}」の選択数を確認してください。')
-            if not raw and key not in required: continue
             value = raw
         result[key] = value
     return result

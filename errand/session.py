@@ -306,6 +306,7 @@ class Session:
                     self._thread_id = self._turn_id = None
                     self._requests.clear()
                     self._items.clear()
+                    self._mcp_confirmations.clear()
                     self._generation += 1
                 if failed:
                     failed.close()

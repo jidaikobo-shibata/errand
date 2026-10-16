@@ -36,6 +36,23 @@ class SessionTests(unittest.TestCase):
         self.session._request(self.session._generation, self.confirmation('new-conversation'))
         self.assertIn('new-conversation', self.session._requests)
 
+    def test_send_failure_clears_grants_before_reconnection(self):
+        server = self.session._server = Mock()
+        self.session._thread_id = 'old-thread'
+        self.session._request(0, self.confirmation())
+        self.session.answer('confirm', {'action': 'accept', 'content': {}}, remember=True)
+        self.assertTrue(self.session._mcp_confirmations)
+        server.request.side_effect = RpcError('turn start failed')
+        self.session._send(0, 'test')
+        self.assertIsNone(self.session._server)
+        self.assertIsNone(self.session._thread_id)
+        self.assertFalse(self.session._mcp_confirmations)
+        replacement = self.session._server = Mock()
+        self.session._thread_id = 'new-thread'
+        self.session._request(self.session._generation, self.confirmation('after-reconnect'))
+        replacement.respond.assert_not_called()
+        self.assertIn('after-reconnect', self.session._requests)
+
     def test_once_decline_and_failed_reply_never_add_mcp_grants(self):
         server = self.session._server = Mock()
         for result, remember in (({'action': 'accept', 'content': {}}, False),

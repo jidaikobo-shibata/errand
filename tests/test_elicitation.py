@@ -44,6 +44,21 @@ class ElicitationTests(unittest.TestCase):
         with self.assertRaises(ValueError): content(form, {'choice': '許可'})
         with self.assertRaises(ValueError): content(form, {'many': ['a', 'a']})
 
+    def test_optional_multiselect_can_be_left_unselected(self):
+        form = schema(choices={'type': 'array', 'items': {'type': 'string', 'enum': ['a', 'b']},
+                               'minItems': 2, 'maxItems': 2})
+        self.assertEqual(content(form, {'choices': []}), {})
+        self.assertEqual(content(form, {'choices': ['a', 'b']}), {'choices': ['a', 'b']})
+        with self.assertRaises(ValueError):
+            content(form, {'choices': ['a']})
+        with self.assertRaises(ValueError):
+            content(form, {'choices': False})
+        form['required'] = ['choices']
+        with self.assertRaises(ValueError):
+            content(form, {'choices': []})
+        form['properties']['choices']['minItems'] = 0
+        self.assertEqual(content(form, {'choices': []}), {'choices': []})
+
     def test_formats(self):
         for fmt, good, bad in (('email', 'a@example.com', 'invalid'), ('uri', 'https://example.com', 'plain text'),
                                ('date', '2026-10-16', '2026-99-99'),

@@ -37,6 +37,8 @@ def build(output):
     shutil.copy2(ROOT / 'LICENSE', resources / 'LICENSE')
     shutil.copytree(ROOT / 'errand', resources / 'errand',
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    shutil.copytree(ROOT / 'chat_foundation', resources / 'chat_foundation',
+                    ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     launcher = executables / 'Errand'
     launcher.write_text(LAUNCHER)
     launcher.chmod(0o755)

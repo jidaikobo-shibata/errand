@@ -14,10 +14,8 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 MANIFEST = json.loads(Path(__file__).with_name('runtime_manifest.json').read_text())
-SETUP_DESCRIPTION = (
-    'Errandの動作に必要なプログラム（Codex）を確認し、未導入の場合は'
-    'ダウンロードしてこのMacに保存します。準備が終わったら、ChatGPTへのログインに進みます。'
-)
+from .product import SETUP_DESCRIPTION
+
 
 
 class SetupCancelled(Exception):
@@ -36,10 +34,10 @@ def runtime_directory(root=None, arch=None):
     return (root or runtime_root()) / MANIFEST['version'] / (arch or platform.machine())
 
 
-def managed_codex():
+def managed_codex(root=None):
     if sys.platform != 'darwin':
         return None
-    binary = runtime_directory() / 'bin/codex'
+    binary = runtime_directory(root=root) / 'bin/codex'
     return str(binary) if binary.is_file() and os.access(binary, os.X_OK) else None
 
 
@@ -106,7 +104,7 @@ def extract_package(archive, destination, cancel):
             stream.extract(member, destination, filter='data')
 
 
-def probe_codex(binary, cancel=None):
+def probe_codex(binary, cancel=None, client_info=None):
     """Check the actual app-server handshake, without an account or a prompt."""
     from .protocol import AppServer, server_command
     from .session import Session
@@ -117,7 +115,7 @@ def probe_codex(binary, cancel=None):
             server.start()
             # A freshly downloaded Intel binary can need over a minute for
             # Rosetta's first translation. The GUI remains cancellable.
-            Session._initialize(server, timeout=180, cancel=cancel)
+            Session._initialize(server, timeout=180, cancel=cancel, client_info=client_info)
         finally:
             server.close()
 
@@ -163,8 +161,10 @@ def install_runtime(root, arch, cancel, progress, probe=None):
 
 class RuntimeSetup:
     """One shared setup operation for all tabs; callbacks run on the UI thread."""
-    def __init__(self, dispatch=lambda fn: fn(), root=None, arch=None):
+    def __init__(self, dispatch=lambda fn: fn(), root=None, arch=None, resolve_codex=None, client_info=None):
         self.dispatch = dispatch
+        self.resolve_codex = resolve_codex
+        self.client_info = dict(client_info) if client_info is not None else None
         self.root = root or runtime_root()
         self.arch = arch or platform.machine()
         self._lock = threading.Lock()
@@ -218,18 +218,25 @@ class RuntimeSetup:
         threading.Thread(target=self._run, name='errand-runtime-setup', daemon=True).start()
         return True
 
+    def _probe(self, binary):
+        if self.client_info is None:
+            probe_codex(binary, self._cancel)
+        else:
+            probe_codex(binary, self._cancel, client_info=self.client_info)
+
     def _run(self):
         try:
             from .protocol import find_codex, RpcError
             self._report('動作環境を確認しています…', None)
             try:
-                existing = find_codex()
+                existing = (self.resolve_codex or find_codex)()
                 check_cancelled(self._cancel)
-                probe_codex(existing, self._cancel)
+                self._probe(existing)
             except (RpcError, OSError, TimeoutError):
                 if sys.platform != 'darwin':
                     raise SetupError('この準備機能はMac向けです。Codexを導入してから再度お試しください。')
-                existing = install_runtime(self.root, self.arch, self._cancel, self._report)
+                existing = install_runtime(self.root, self.arch, self._cancel, self._report,
+                                           probe=self._probe)
             check_cancelled(self._cancel)
             self._emit('ready', path=existing)
         except SetupCancelled:

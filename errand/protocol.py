@@ -20,7 +20,7 @@ class CodexMissing(RpcError):
     pass
 
 
-def find_codex(explicit=None):
+def find_codex(explicit=None, *, runtime_root=None, missing_message="Errandの動作環境を準備してください。"):
     """Desktop launchers do not normally inherit the terminal's PATH."""
     if explicit:
         path = Path(explicit).expanduser()
@@ -28,7 +28,7 @@ def find_codex(explicit=None):
             raise RpcError("Codexの実行ファイルを絶対パスで指定してください。")
         return str(path)
     from .runtime import managed_codex
-    prepared = managed_codex()
+    prepared = managed_codex(root=runtime_root)
     if prepared:
         return prepared
     found = shutil.which("codex")
@@ -53,7 +53,7 @@ def find_codex(explicit=None):
     for candidate in sorted(candidates, key=version, reverse=True):
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)
-    raise CodexMissing("Errandの動作環境を準備してください。")
+    raise CodexMissing(missing_message)
 
 
 def server_command(codex):

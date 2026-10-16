@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import plistlib
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -20,6 +21,14 @@ class MacBundleTests(unittest.TestCase):
             subprocess.run(['bash', '-n', str(executable)], check=True)
             self.assertTrue(executable.stat().st_mode & 0o111)
             self.assertTrue((app / 'Contents/Resources/errand/ui.py').is_file())
+            resources = app / 'Contents/Resources'
+            self.assertTrue((resources / 'chat_foundation/gtk/markdown_widget.py').is_file())
+            subprocess.run([
+                sys.executable, '-B', '-c',
+                'from errand.markdown import blocks; '
+                'from chat_foundation.core.markdown import blocks as shared; '
+                'assert blocks is shared; assert blocks("hello")',
+            ], cwd=resources, check=True)
             self.assertEqual((app / 'Contents/Resources/LICENSE').read_bytes(),
                              (builder.ROOT / 'LICENSE').read_bytes())
             self.assertFalse(list(app.rglob('__pycache__')))

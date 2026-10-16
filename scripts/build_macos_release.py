@@ -208,7 +208,7 @@ def build(output):
     for name in ('app.py', 'LICENSE', 'README.md', 'CONTRIBUTING.md',
                  'extension.js', 'prefs.js', 'shortcutPreferences.js', 'metadata.json'):
         shutil.copy2(ROOT / name, source / name)
-    for name in ('errand', 'scripts', 'distribution', 'tests', '.github', 'schemas'):
+    for name in ('errand', 'chat_foundation', 'scripts', 'distribution', 'tests', '.github', 'schemas'):
         shutil.copytree(ROOT / name, source / name,
                         ignore=shutil.ignore_patterns('__pycache__', '*.pyc', 'gschemas.compiled'))
     sources_release = output / f'Errand-Sources-{label}'

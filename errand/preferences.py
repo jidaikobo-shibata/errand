@@ -4,17 +4,18 @@ import sys
 from gi.repository import Adw, Gdk, Gio, Gtk
 
 from .settings import Settings
+from .product import ERRAND
 from .shortcuts import ACTIONS, bindings, validate_shortcuts
 
 
-def load_settings(isolated=False):
-    settings = Settings(isolated=isolated)
-    if sys.platform != 'darwin' and not isolated:
+def load_settings(isolated=False, product=ERRAND):
+    settings = Settings(path=product.settings_path(), isolated=isolated)
+    if sys.platform != 'darwin' and not isolated and product.settings_schema:
         source = Gio.SettingsSchemaSource.get_default()
         directory = Path(__file__).resolve().parent.parent / 'schemas'
         if (directory / 'gschemas.compiled').is_file():
             source = Gio.SettingsSchemaSource.new_from_directory(str(directory), source, False)
-        schema = source.lookup('org.gnome.shell.extensions.errand', True) if source else None
+        schema = source.lookup(product.settings_schema, True) if source else None
         if schema:
             settings.gnome = Gio.Settings.new_full(schema, None, None)
     try:

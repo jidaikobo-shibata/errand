@@ -151,6 +151,32 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(self.session.thread_id, thread)
         self.assertFalse(any(k in {"user", "assistant", "delta"} for k, _ in self.events))
 
+    def test_connection_identity_is_shared_by_catalogue_conversation_and_summary(self):
+        info = {"name": "example", "title": "Example", "version": "1"}
+        self.session.client_info = info
+        with patch.object(Session, '_initialize', wraps=Session._initialize) as handshake:
+            self.catalogue()
+            self.session.send("依頼", model="fake-fast", effort="low")
+            self.finished()
+            self.events.clear()
+            self.session.summarize("会話", model="fake-fast", effort="low")
+            self.finished()
+        self.assertEqual(handshake.call_count, 3)
+        for call in handshake.call_args_list:
+            self.assertEqual(call.kwargs['client_info'], info)
+
+    def test_product_summary_instructions_reach_separate_thread(self):
+        self.catalogue()
+        instructions = "会話の引き継ぎ用要約だけを生成。製品固有の要約条件。"
+        self.session.summary_instructions = instructions
+        self.session.summarize("会話", model="fake-fast", effort="low")
+        self.finished()
+        result = next(d["text"] for k, d in self.events if k == "summary")
+        params = json.loads(result[result.index('{'):])
+        self.assertEqual(params["developerInstructions"], instructions)
+        self.assertTrue(params["ephemeral"])
+        self.assertEqual(params["sandbox"], "read-only")
+
     def test_failed_summary_does_not_emit_copy(self):
         self.session.command.append("--fail-summary")
         self.session.summarize("会話")

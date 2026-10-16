@@ -17,9 +17,11 @@ def validate_login_url(url):
 
 
 class Login:
-    def __init__(self, emit, dispatch=lambda fn: fn(), codex=None, command=None):
+    def __init__(self, emit, dispatch=lambda fn: fn(), codex=None, command=None, client_info=None, resolve_codex=None):
         self.emit, self.dispatch = emit, dispatch
         self.codex, self.command = codex, command
+        self.client_info = dict(client_info) if client_info is not None else None
+        self.resolve_codex = resolve_codex
         self._lock = threading.Lock()
         self._done = threading.Event()
         self._closed = False
@@ -66,7 +68,7 @@ class Login:
     def _run(self):
         server = None
         try:
-            command = self.command or server_command(find_codex(self.codex))
+            command = self.command or server_command((self.resolve_codex or find_codex)(self.codex))
             # The login listener needs no access to user documents.
             with tempfile.TemporaryDirectory(prefix="errand-login-") as directory:
                 server = AppServer(command, directory, self._event,
@@ -76,7 +78,7 @@ class Login:
                     if self._cancelled:
                         return
                 server.start()
-                Session._initialize(server)
+                Session._initialize(server, client_info=self.client_info)
                 account = server.request("account/read", {"refreshToken": False}).result(timeout=30)
                 if self._cancelled:
                     return

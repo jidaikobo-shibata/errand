@@ -3,6 +3,32 @@
 以下のコマンドはリポジトリのルートで実行します。
 利用者向けの機能・操作・承認方法は [README](README.md) を参照してください。
 
+## 共通チャット基盤への移行
+
+設計と移行手順は [.codex/shared-chat-design.md](.codex/shared-chat-design.md) にあります。
+製品名・案内・指示・設定保存先は `errand/product.py` の定義から渡します。
+Errandの既存入口と保存先は維持します。現在は移行初期で、会話制御・ランタイム等には
+Errand固有の前提が残っています。製品別に共通処理をコピーせず、段階的に分離してください。
+
+Markdown・数式・MCPフォームの本体は `chat_foundation/core` と `chat_foundation/gtk` に
+あります。`errand` 側の同名モジュールは互換エイリアスです。共通部品の修正は本体へ入れ、
+製品固有のimportを追加しないでください。共通コードを追加した配布物では、このパッケージも
+必ず収録します。会話・ログイン・準備の生成は `errand/services.py` で組み立てます。
+
+会話画面の本体は `chat_foundation/gtk/conversation.py` にあります。
+製品側の画面から共通の `Conversation` を配置し、ホストを通してサービス、設定、
+案内、定番依頼のメニュー生成を渡します。ホストとownerに必要な項目は同モジュールの
+冒頭、会話操作の契約は `chat_foundation/core/controller.py` を参照してください。
+Errandのウィンドウ・起動・OS連携は引き続き `errand/ui.py` が担当します。
+
+製品構成の画面検証は、他のGUI検証と同様に独立したWayland・一時設定で実行します。
+実モデルやMCPには接続しません。
+
+```bash
+env GSETTINGS_BACKEND=memory python3 scripts/product_smoke.py
+env GSETTINGS_BACKEND=memory python3 scripts/foundation_view_smoke.py
+```
+
 ## GNOME拡張のビルド
 
 Python 3と `glib-compile-schemas` が必要です。

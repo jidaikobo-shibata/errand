@@ -2,9 +2,9 @@
 import json
 from copy import deepcopy
 from .shortcuts import ACTIONS
+from .product import ERRAND
 import os
 from pathlib import Path
-import sys
 import tempfile
 
 DEFAULTS = {'font-size': 10, 'codex-path': '', 'open-errand': '', 'shortcuts': {},
@@ -39,9 +39,7 @@ class Settings:
         self.error = None
         self.values = deepcopy(DEFAULTS)
         self.isolated = isolated
-        self.path = path or (Path.home() / 'Library/Application Support/Errand/settings.json'
-                             if sys.platform == 'darwin' else
-                             Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'errand/settings.json')
+        self.path = path or ERRAND.settings_path()
         if not isolated:
             try:
                 data = json.loads(self.path.read_text())

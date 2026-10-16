@@ -22,6 +22,8 @@ with tempfile.TemporaryDirectory(prefix="errand-build-") as staging:
     shutil.copytree(root / "schemas", bundle / "schemas")
     shutil.copytree(root / "errand", bundle / "errand",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(root / "chat_foundation", bundle / "chat_foundation",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as package:
         for path in sorted(bundle.rglob("*")):
             if path.is_file():

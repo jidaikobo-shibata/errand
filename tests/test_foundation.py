@@ -25,5 +25,17 @@ class FoundationTests(unittest.TestCase):
                         continue
                     for module in modules:
                         self.assertNotEqual(module.split('.')[0], 'errand')
-                        if path.parent.name == 'core':
+                        if path.parent.name in ('core', 'codex'):
                             self.assertNotIn(module.split('.')[0], ('gi', 'cairo'))
+
+    def test_errand_connection_adapters_use_shared_implementations(self):
+        from chat_foundation.codex.login import Login as SharedLogin
+        from chat_foundation.codex.protocol import AppServer, RpcError
+        from chat_foundation.codex.session import Session as SharedSession
+        from errand.login import Login
+        from errand.protocol import AppServer as ErrandServer, RpcError as ErrandError
+        from errand.session import Session
+        self.assertIs(ErrandServer, AppServer)
+        self.assertIs(ErrandError, RpcError)
+        self.assertIs(Session.send, SharedSession.send)
+        self.assertIs(Login.start, SharedLogin.start)

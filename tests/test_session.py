@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from errand.protocol import CodexMissing, RpcError, server_command
 from errand.session import Session
+from chat_foundation.codex.session import Session as SharedSession
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -122,7 +123,7 @@ class SessionTests(unittest.TestCase):
 
     def test_missing_codex_requests_setup_without_login_or_download(self):
         self.session.command = None
-        with patch('errand.session.find_codex', side_effect=CodexMissing('missing')):
+        with patch.object(self.session, 'resolve_codex', side_effect=CodexMissing('missing')):
             self.session.load_models()
             self.wait(lambda: any(k == 'models_state' and not d['loading'] for k, d in self.events))
         error = next(d for k, d in self.events if k == 'models_error')
@@ -154,7 +155,7 @@ class SessionTests(unittest.TestCase):
     def test_connection_identity_is_shared_by_catalogue_conversation_and_summary(self):
         info = {"name": "example", "title": "Example", "version": "1"}
         self.session.client_info = info
-        with patch.object(Session, '_initialize', wraps=Session._initialize) as handshake:
+        with patch.object(SharedSession, '_initialize', wraps=SharedSession._initialize) as handshake:
             self.catalogue()
             self.session.send("依頼", model="fake-fast", effort="low")
             self.finished()

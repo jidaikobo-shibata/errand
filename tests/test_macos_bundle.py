@@ -27,7 +27,12 @@ class MacBundleTests(unittest.TestCase):
                 sys.executable, '-B', '-c',
                 'from errand.markdown import blocks; '
                 'from chat_foundation.core.markdown import blocks as shared; '
-                'assert blocks is shared; assert blocks("hello")',
+                'from errand.session import Session; '
+                'from errand.login import Login; '
+                'from chat_foundation.codex.session import Session as SharedSession; '
+                'from chat_foundation.codex.login import Login as SharedLogin; '
+                'assert blocks is shared; assert blocks("hello"); '
+                'assert issubclass(Session, SharedSession); assert issubclass(Login, SharedLogin)',
             ], cwd=resources, check=True)
             self.assertEqual((app / 'Contents/Resources/LICENSE').read_bytes(),
                              (builder.ROOT / 'LICENSE').read_bytes())

@@ -184,7 +184,7 @@ sys.stdin.read()
                 else:
                     future.set_result({})
                 return future
-        with patch("errand.session.AppServer", Server):
+        with patch("chat_foundation.codex.session.AppServer", Server):
             session = Session(lambda kind, data: events.append((kind, data)), command=["fake"])
             try:
                 session.send("first")

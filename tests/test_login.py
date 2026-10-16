@@ -33,13 +33,13 @@ class LoginTests(unittest.TestCase):
             self.login.close()
 
     def test_login_uses_product_connection_identity(self):
-        from errand.session import Session
+        from chat_foundation.codex.connection import initialize
         info = {"name": "example", "title": "Example", "version": "1"}
         self.login = Login(self.emit, command=self.command, client_info=info)
-        with patch.object(Session, '_initialize', wraps=Session._initialize) as handshake:
+        with patch('chat_foundation.codex.login.initialize', wraps=initialize) as handshake:
             self.login.start()
             self.assertTrue(self.finished.wait(5))
-        self.assertEqual(handshake.call_args.kwargs['client_info'], info)
+        self.assertEqual(handshake.call_args.args[1], info)
         self.assertIn('success', [kind for kind, _ in self.events])
 
     def test_browser_login_completion(self):

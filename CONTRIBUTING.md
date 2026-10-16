@@ -15,6 +15,16 @@ Markdown・数式・MCPフォームの本体は `chat_foundation/core` と `chat
 製品固有のimportを追加しないでください。共通コードを追加した配布物では、このパッケージも
 必ず収録します。会話・ログイン・準備の生成は `errand/services.py` で組み立てます。
 
+通信・会話制御・ログインの本体は `chat_foundation/codex` にあります。
+共通Sessionには指示文・要約指示・接続情報を明示的に渡し、接続には検証用のcommand、
+またはCodex実行ファイルの探索関数を渡します。共通Loginにも接続情報と接続方法を渡します。
+共通側は製品の保存先や指示を探しません。`errand/session.py` と `errand/login.py` は
+従来の呼び出しにErrandの既定値を補う薄い層です。`errand/protocol.py` は実行ファイル探索と
+共通通信の再公開を担い、取得・配置・manifestは引き続きErrandの配布処理で管理します。
+
+接続本体のテストで差し替える対象は `chat_foundation.codex` 側です。
+`tests/test_shared_codex.py` は別プロセスでErrandとGTKを読み込まないことも検証します。
+
 会話画面の本体は `chat_foundation/gtk/conversation.py` にあります。
 製品側の画面から共通の `Conversation` を配置し、ホストを通してサービス、設定、
 案内、定番依頼のメニュー生成を渡します。ホストとownerに必要な項目は同モジュールの

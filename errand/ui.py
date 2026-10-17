@@ -1,6 +1,7 @@
 """Small, keyboard-accessible GTK window for disposable conversations."""
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -268,6 +269,7 @@ class Application(Adw.Application):
         self.preferences = None
         self.font_css = Gtk.CssProvider()
         self.mac_shortcut = None
+        self.mac_reopen = None
         self.registered_shortcut = ""
         self.shortcut_error = None
         self.connect("activate", self.activate_window)
@@ -383,21 +385,36 @@ class Application(Adw.Application):
             except (ValueError, OSError, RuntimeError) as exc:
                 self.shortcut_error = str(exc)
                 self.window.current.status.set_text(self.shortcut_error)
+            if sys.platform == 'darwin':
+                from .macos_reopen import MacReopen
+                try:
+                    self.mac_reopen = MacReopen(lambda: GLib.idle_add(self.activate))
+                except (OSError, RuntimeError) as exc:
+                    self.window.current.status.set_text(str(exc))
             self.hold()
         self.window.present()
         if self.smoke:
             GLib.timeout_add(250, lambda: (self.quit(), False)[1])
 
     def shutdown_session(self, _):
-        self.runtime.close()
+        def cleanup(name, callback):
+            try:
+                callback()
+            except Exception:
+                logging.exception('Failed to clean up %s', name)
+
+        if self.mac_reopen:
+            cleanup('macOS reopen handler', self.mac_reopen.close)
+        cleanup('runtime setup', self.runtime.close)
         if self.mac_shortcut:
-            self.mac_shortcut.close()
+            cleanup('macOS shortcut', self.mac_shortcut.close)
         if self.preferences:
-            self.preferences.destroy()
-        if Gdk.Display.get_default():
-            Gtk.StyleContext.remove_provider_for_display(Gdk.Display.get_default(), self.font_css)
+            cleanup('preferences', self.preferences.destroy)
+        display = Gdk.Display.get_default()
+        if display:
+            cleanup('font styles', lambda: Gtk.StyleContext.remove_provider_for_display(display, self.font_css))
         if self.window:
-            self.window.shutdown_sessions()
+            cleanup('conversation sessions', self.window.shutdown_sessions)
 
 
 def main():

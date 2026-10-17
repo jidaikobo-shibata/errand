@@ -4,9 +4,12 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from errand.ui import Application, Gdk, GLib, Gtk
+from smoke_support import foreground_on_activate, input_ready, wait_for
 
-app = Application(isolated=True, smoke=True)
+root = Path(__file__).resolve().parent.parent
+app = Application(isolated=True, command=[sys.executable, str(root / 'tests/fake_server.py')])
 failures = []
+foreground_on_activate(app)
 
 
 def verify(_):
@@ -19,6 +22,7 @@ def verify(_):
         def text():
             return buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
         view.input.grab_focus()
+        assert view.input.has_focus()
         assert not press(Gdk.KEY_Up)
         for draft in ('最初のお願い\n二行目', '次のお願い'):
             buffer.set_text(draft)
@@ -61,7 +65,8 @@ def verify(_):
         app.quit()
 
 
-app.connect('activate', lambda _: GLib.timeout_add(60, lambda: verify(app)))
+app.connect('activate', lambda _: wait_for(app, lambda: input_ready(app),
+                                         lambda: verify(app), failures, 'prompt history editor focus'))
 app.run([])
 if failures:
     raise failures[0]

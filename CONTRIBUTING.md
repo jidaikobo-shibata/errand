@@ -64,14 +64,16 @@ brew install gtk4 libadwaita pygobject3
 ```
 
 リポジトリのルートで実行すると、Finderから開けるアプリを生成できます。
-ビルド自体はPython標準ライブラリだけで動きます。
+ビルドにはPython標準ライブラリとmacOSのCommand Line Tools（clang）を使います。
 
 ```bash
 python3 scripts/build_macos.py
 open dist/macos/Errand.app
 ```
 
-生成物にはチャットアプリのソースだけをコピーします。認証情報・設定・作業記録は含めません。
+生成物にはチャットアプリのソースと小さなmacOS用ランチャーを入れます。
+ランチャーはErrandのアプリ識別を保ったままHomebrewのPythonを読み込みます。
+認証情報・設定・作業記録は含めません。
 生成後は元のリポジトリを移動しても起動できますが、Homebrewの実行環境は引き続き必要です。
 Apple SiliconとIntelの標準Homebrew配置から、GTKを使えるPythonを探します。
 CodexもHomebrewの標準配置やnvmから探します。
@@ -227,6 +229,12 @@ env GSETTINGS_BACKEND=memory python3 scripts/elicitation_smoke.py
 env GSETTINGS_BACKEND=memory python3 scripts/approval_settings_smoke.py
 env GSETTINGS_BACKEND=memory python3 scripts/message_copy_smoke.py
 env GSETTINGS_BACKEND=memory python3 scripts/summary_copy_smoke.py
+```
+
+終了処理の例外がほかの後始末を妨げないことは、画面を表示せず検証できます。
+
+```bash
+python3 scripts/application_shutdown_smoke.py
 ```
 
 ショートカットの変更・無効化・既定値への復帰と重複検出の検証:

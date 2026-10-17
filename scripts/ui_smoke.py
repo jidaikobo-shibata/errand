@@ -13,13 +13,15 @@ from errand.math_widget import MathBlock
 from errand.markdown_widget import MarkdownView
 from errand.markdown import Block
 import cairo
+from smoke_support import foreground_on_activate, input_ready
 
 root = Path(__file__).resolve().parent.parent
 app = Application(isolated=True, command=[sys.executable, str(root / "tests/fake_server.py")])
 stage = 0
-deadline = time.monotonic() + 15
+deadline = time.monotonic() + 30
 failure = []
 tab_checks = {}
+foreground_on_activate(app)
 
 def tick():
     global stage
@@ -28,7 +30,7 @@ def tick():
         if time.monotonic() > deadline:
             raise RuntimeError(f"UI smoke timeout, stage {stage}")
         if stage == 0:
-            if window.models_loading or not window.model_entries:
+            if window.models_loading or not window.model_entries or not input_ready(app):
                 return True
             if sys.platform == "darwin":
                 assert app.get_is_registered()
@@ -161,6 +163,7 @@ def tick():
             assert copied[-2:] == ["  print('<&>')\n", "second\n"]
             window.approval_choice.set_selected(1)
             assert window.session.approvals_reviewer == "auto_review"
+            assert app.settings.get('approval-reviewer') == 'auto_review'
             assert window.approval_choice.get_selected() == 1
             assert "自動" not in window.model_button.get_label()
             window.input.get_buffer().set_text("permissions")
@@ -242,6 +245,10 @@ def tick():
             stage = 26
         elif stage == 26:
             adjustment = window.scroll.get_vadjustment()
+            # The idle scroll can still be queued after GTK's next allocation.
+            if (window._scroll_idle is not None or window._scroll_layout
+                    or abs(adjustment.get_value() - (adjustment.get_upper() - adjustment.get_page_size())) >= 1):
+                return True
             assert abs(adjustment.get_value() - (adjustment.get_upper() - adjustment.get_page_size())) < 1
             assert not window.stop.get_visible()
             window.model_button.popup()
@@ -256,6 +263,7 @@ def tick():
             assert app.window.get_visible()
             tab_checks["first"] = window
             tab_checks["text"] = window.conversation_text()
+            tab_checks['expected_reviewer'] = app.settings.get('approval-reviewer')
             window.input.get_buffer().set_text("残す下書き")
             assert app.window.key_controller.emit("key-pressed", Gdk.KEY_t, 0, Gdk.ModifierType.CONTROL_MASK)
             assert app.window.tabs.get_n_pages() == 2
@@ -270,7 +278,7 @@ def tick():
             tab_checks["second"] = window
             assert window.history.get_first_child() is None
             assert window.session is not tab_checks["first"].session
-            assert window.session.approvals_reviewer == "user"
+            assert window.session.approvals_reviewer == tab_checks['expected_reviewer']
             assert tab_checks["first"].session.approvals_reviewer == "auto_review"
             buffer = window.input.get_buffer()
             buffer.set_text("先頭\n末尾")
@@ -434,6 +442,10 @@ def tick():
             math = tab_checks["math_view"]
             formula = next(part for part in math._parts if isinstance(part, MathBlock))
             assert formula.layout is not None
+            # Mathematical layout is synchronous; widget allocation is not.
+            if (not formula.canvas.get_mapped() or formula.canvas.get_width() <= 0
+                    or formula.canvas.get_height() <= 0):
+                return True
             assert formula.canvas.get_width() > 0 and formula.canvas.get_height() > 0
             assert formula.canvas.get_width() < app.window.get_width()
             copied = []

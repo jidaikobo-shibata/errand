@@ -12,13 +12,15 @@ spec.loader.exec_module(builder)
 
 
 class MacBundleTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'darwin', 'Native macOS launcher requires the Apple SDK')
     def test_bundle_is_self_contained_source_and_preserves_existing_bundle(self):
         with tempfile.TemporaryDirectory() as temp:
             app = builder.build(Path(temp) / 'output with spaces')
             info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
             self.assertEqual(info['CFBundleDisplayName'], 'Errand')
             executable = app / 'Contents/MacOS' / info['CFBundleExecutable']
-            subprocess.run(['bash', '-n', str(executable)], check=True)
+            self.assertEqual(executable.read_bytes()[:4], b'\xcf\xfa\xed\xfe')
+            subprocess.run(['bash', '-n', str(app / 'Contents/Resources/find-python')], check=True)
             self.assertTrue(executable.stat().st_mode & 0o111)
             self.assertTrue((app / 'Contents/Resources/errand/ui.py').is_file())
             resources = app / 'Contents/Resources'

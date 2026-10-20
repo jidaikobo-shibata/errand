@@ -289,7 +289,6 @@ class Conversation(Gtk.Box):
         self.send_button = Gtk.Button(label="送信", sensitive=False)
         self.send_button.add_css_class("suggested-action")
         self.send_button.connect("clicked", self.send)
-        row.append(self.send_button)
         self.bookmark_button = app.create_bookmark_menu(self)
         row.append(self.bookmark_button)
         self.stop = Gtk.Button(label="中断", sensitive=False, visible=False)
@@ -310,6 +309,7 @@ class Conversation(Gtk.Box):
         row.append(Gtk.Box(hexpand=True))
         row.append(self.model_button)
         row.append(self.approval_choice)
+        row.append(self.send_button)
         body.append(row)
         app.runtime.subscribe(self.setup_event)
         if not app.smoke:

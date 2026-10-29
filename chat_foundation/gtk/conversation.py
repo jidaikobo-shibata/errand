@@ -19,6 +19,10 @@ from .elicitation_widget import ElicitationView
 from ..core.controller import ConversationController
 
 
+MAX_PROMPT_CHARACTERS = 100_000
+MAX_PROMPT_LINES = 2_000
+
+
 def label(text):
     widget = Gtk.Label(label=text, xalign=0, wrap=True, selectable=True)
     widget.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
@@ -265,6 +269,8 @@ class Conversation(Gtk.Box):
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), self.input_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.input = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False)
+        self.input.connect("paste-clipboard", self.paste_prompt)
+        self.input.get_buffer().connect("insert-text", self.check_prompt_insertion)
         self.input.get_buffer().connect("changed", self.prompt_edited)
         self.input.update_property([Gtk.AccessibleProperty.LABEL, Gtk.AccessibleProperty.DESCRIPTION],
                                    ["お願い", self.app.product.startup_tips[0]])
@@ -413,6 +419,51 @@ class Conversation(Gtk.Box):
     def prompt_edited(self, *_):
         if not self._recalling_prompt:
             self._prompt_history_index = None
+
+    def prompt_fits(self, text):
+        if len(text) <= MAX_PROMPT_CHARACTERS and text.count('\n') < MAX_PROMPT_LINES:
+            return True
+        self.status.set_text(
+            "入力できるのは10万文字・2,000行までです。長いテキストはファイルとして保存し、"
+            "入力欄へドロップするか、ファイルのパスとお願いを入力してください。"
+            "貼り付け元の内容は変更していません。")
+        return False
+
+    def check_prompt_insertion(self, buffer, location, text, length):
+        # insert-text runs before GTK inserts or lays out the new text.
+        current = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+        if not self.prompt_fits(current + text):
+            buffer.stop_emission_by_name("insert-text")
+
+    def paste_prompt(self, view):
+        # Check before deleting the selection, so a rejected paste keeps the draft.
+        view.stop_emission_by_name("paste-clipboard")
+        view.get_clipboard().read_text_async(None, self.prompt_clipboard_ready)
+
+    def prompt_clipboard_ready(self, clipboard, result):
+        if self.closed:
+            return
+        try:
+            text = clipboard.read_text_finish(result)
+        except GLib.Error:
+            self.status.set_text("クリップボードのテキストを読み取れませんでした。")
+            return
+        if not text:
+            return
+        buffer = self.input.get_buffer()
+        current = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+        selection = buffer.get_selection_bounds()
+        if selection:
+            start, end = selection
+            current = current[:start.get_offset()] + current[end.get_offset():]
+        if not self.prompt_fits(current + text):
+            return
+        buffer.begin_user_action()
+        try:
+            buffer.delete_selection(True, True)
+            buffer.insert_at_cursor(text)
+        finally:
+            buffer.end_user_action()
 
     def recall_prompt(self, direction):
         buffer = self.input.get_buffer()

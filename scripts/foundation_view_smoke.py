@@ -2,6 +2,7 @@
 """Exercise the shared view with a minimal host, without importing Errand."""
 from pathlib import Path
 import sys
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -45,6 +46,34 @@ def run(_):
         session.load_models.assert_not_called()
         services.conversation.assert_called_once()
         view.input.get_buffer().set_text('依頼')
+        buffer = view.input.get_buffer()
+        buffer.select_range(buffer.get_start_iter(), buffer.get_end_iter())
+        clipboard = Mock()
+        clipboard.read_text_finish.return_value = '長' * 1_820_000
+        view.prompt_clipboard_ready(clipboard, None)
+        assert buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True) == '依頼'
+        assert buffer.get_has_selection()
+        assert 'ファイル' in view.status.get_text()
+        clipboard.read_text_finish.return_value = '短いお願い'
+        view.prompt_clipboard_ready(clipboard, None)
+        assert buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True) == '短いお願い'
+        buffer.insert_at_cursor('\n' * 2_000)
+        assert buffer.get_line_count() == 1
+        buffer.set_text('a' * 100_000)
+        buffer.insert_at_cursor('b')
+        assert buffer.get_char_count() == 100_000
+        buffer.set_text('依頼')
+        # Exercise GTK's paste action and asynchronous clipboard read as well.
+        clipboard = view.input.get_clipboard()
+        clipboard.set('貼り付け')
+        buffer.select_range(buffer.get_start_iter(), buffer.get_end_iter())
+        view.input.emit('paste-clipboard')
+        deadline = time.monotonic() + 3
+        while buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True) != '貼り付け':
+            if time.monotonic() > deadline:
+                raise AssertionError('Clipboard paste timed out')
+            GLib.MainContext.default().iteration(False)
+            time.sleep(.001)
         view.event('user', {'text': '依頼'})
         view.event('assistant', {'item_id': 'answer', 'text': '回答'})
         assert '依頼' in view.conversation_text()

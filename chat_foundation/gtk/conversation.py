@@ -556,6 +556,10 @@ class Conversation(Gtk.Box):
                               model=entry["model"] if entry else None, effort=self.selected_effort())
             self.pending_submission = (draft, attachments, text.strip())
             self.model_popover.popdown()
+            self.clear_navigation_highlight()
+            self._navigation_index = None
+            self._follow_bottom = True
+            self.queue_scroll_bottom()
         except Exception as error:
             self.status.set_text(str(error))
 

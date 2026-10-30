@@ -78,6 +78,21 @@ def run(_):
         view.event('assistant', {'item_id': 'answer', 'text': '回答'})
         assert '依頼' in view.conversation_text()
         assert '回答' in view.conversation_text()
+        view.selected_model = Mock(return_value={'model': 'test-model'})
+        view.navigate_messages('first')
+        assert not view._follow_bottom
+        view.send(None)
+        session.send.assert_called_once()
+        assert view._follow_bottom
+        assert view._navigation_index is None
+        assert view._highlight_widget is None
+        view.user_scroll(None, 0, -1)
+        assert not view._follow_bottom
+        view.navigate_messages('first')
+        session.send.side_effect = RuntimeError('送信失敗')
+        view.send(None)
+        assert not view._follow_bottom
+        assert view._navigation_index == 0
         assert not any(name == 'errand' or name.startswith('errand.') for name in sys.modules)
         view.close()
         session.close.assert_called_once_with(wait=False)

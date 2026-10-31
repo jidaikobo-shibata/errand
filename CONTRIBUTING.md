@@ -35,6 +35,13 @@ Geminiのtransportは本文チャンクのコールバックを受け取り、SS
 回答時間の計算は`chat_foundation/core/timing.py`、表示は共通会話画面が担当します。
 `scripts/message_copy_smoke.py`と`scripts/gemini_smoke.py`で、時間表示・本文コピーからの
 除外・途中表示・要約との分離を確認します。
+GeminiのTCP接続は`chat_foundation/gemini/network.py`で候補を200ms間隔で試し、
+最初に成功した接続だけを使います。IPv4・IPv6の候補を交互にし、保留中の候補は最大6個、
+全体の接続待ち時間は呼び出し側のtimeoutで制限します。TLS・プロキシ・HTTP処理は
+urllib/http.clientを維持し、ソケットの差し替えはそのHTTPS接続インスタンス内に限定します。
+socket.create_connectionやOSのアドレス優先順位を変更しないでください。
+接続の競争中はHTTP本文や認証情報を送らず、APIリクエストを重複送信しません。
+`tests/test_gemini_network.py`はネットワークなしで遅い候補・候補全滅・資源解放を検証します。
 
 Geminiの接続と状態管理は次で検証します。GUI検証は独立Wayland・D-Busセッションと
 一時HOME・設定で行い、`GEMINI_API_KEY` と `GOOGLE_API_KEY` は引き継がないでください。

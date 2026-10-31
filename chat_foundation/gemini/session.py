@@ -11,6 +11,7 @@ import urllib.request
 import uuid
 
 from .credentials import read_api_key
+from .network import HTTPSHandler
 
 
 DEFAULT_MODEL = 'gemini-3.5-flash-lite'
@@ -89,7 +90,7 @@ def generate(model, contents, instructions, key, cancel, on_chunk=None):
     try:
         started = time.monotonic()
         context = ssl.create_default_context(cafile='/etc/ssl/cert.pem' if sys.platform == 'darwin' else None)
-        opener = urllib.request.build_opener(_NoRedirect(), urllib.request.HTTPSHandler(context=context))
+        opener = urllib.request.build_opener(_NoRedirect(), HTTPSHandler(context=context))
         merged = {'candidates': []}
         if cancel.is_set():
             return None

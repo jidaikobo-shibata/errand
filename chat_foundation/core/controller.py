@@ -7,7 +7,9 @@ This protocol describes the existing behavior; it adds no runtime wrapper.
 Controllers may supply assistant_name, notice, supports_files, supports_approvals
 and supports_reasoning. The shared view defaults to the existing Codex behavior
 when those optional display/capability attributes are absent.
-supports_auto_review=False keeps the approval selector at manual review without
+Optional approval_modes (id/label pairs), approval_mode and set_approval_mode
+expose native per-tab approval choices without persisting Codex preferences.
+supports_auto_review=False keeps the legacy approval selector at manual review without
 changing the saved Codex preference. supports_file_references=True opts into the
 optional send(files=[absolute_paths]) argument, leaving legacy send calls intact.
 """

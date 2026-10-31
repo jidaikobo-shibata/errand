@@ -36,6 +36,37 @@ class ACPTests(unittest.TestCase):
                 self.fail('ACP operation timed out')
             time.sleep(.005)
 
+    def test_native_approval_modes_apply_before_prompt_and_reset(self):
+        session, events, _ = self.make_session()
+        session.approval_modes = (('default', 'Manual'), ('autoEdit', 'Edit'), ('yolo', 'All'))
+        with self.assertRaises(ValueError):
+            session.set_approval_mode('unknown')
+        for mode in ('autoEdit', 'yolo', 'default'):
+            session.set_approval_mode(mode)
+            session.send('hello')
+            with self.assertRaises(Exception):
+                session.set_approval_mode('default')
+            self.until(lambda: not session.busy)
+            self.assertEqual((Path(session._scratch.name) / 'mode.txt').read_text(), mode)
+            self.assertEqual(events[-1][1]['status'], 'completed')
+        session.set_approval_mode('autoEdit')
+        session.reset()
+        session.send('again')
+        self.until(lambda: not session.busy)
+        self.assertEqual((Path(session._scratch.name) / 'mode.txt').read_text(), 'autoEdit')
+        session._available_modes = {'default'}
+        with self.assertRaises(Exception):
+            session.set_approval_mode('yolo')
+
+    def test_rejected_mode_never_sends_prompt(self):
+        session, events, _ = self.make_session(arguments=('--reject-mode',))
+        session.approval_modes = (('default', 'Manual'), ('yolo', 'All'))
+        session.set_approval_mode('yolo')
+        session.send('must not run')
+        self.until(lambda: not session.busy)
+        self.assertFalse(any(kind in ('submitted', 'delta') for kind, _ in events))
+        self.assertEqual(events[-1][1]['status'], 'failed')
+
     def test_models_streaming_turns_and_reset(self):
         session, events, launches = self.make_session()
         self.assertEqual([entry['model'] for entry in session._models], ['offline-model'])

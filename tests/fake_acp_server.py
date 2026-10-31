@@ -75,17 +75,22 @@ for line in sys.stdin:
     if method == 'initialize':
         result = {'protocolVersion': 1, 'agentCapabilities': {}}
     elif method == 'session/new':
-        result = {'sessionId': sid, 'modes': {'currentModeId': 'default'},
+        result = {'sessionId': sid, 'modes': {'currentModeId': 'default', 'availableModes': [{'id': m} for m in ('default', 'autoEdit', 'yolo')]},
                   'models': {'currentModelId': 'offline-model', 'availableModels': [
                       {'modelId': 'offline-model', 'name': 'Offline'}, {'modelId': 'auto', 'name': 'Auto'}]}}
         if '--no-models' in sys.argv:
             result.pop('models')
     elif method in ('session/set_model', 'session/set_mode'):
+        if method == 'session/set_mode' and '--reject-mode' in sys.argv:
+            send({'id': message['id'], 'error': {'code': -32602, 'message': 'mode rejected'}})
+            continue
         if method == 'session/set_model' and '--slow-model' in sys.argv:
             continue
         if method == 'session/set_model' and '--no-models' in sys.argv:
             send({'id': message['id'], 'error': {'code': -32601, 'message': 'model selection unsupported'}})
             continue
+        if method == 'session/set_mode':
+            (Path.cwd() / 'mode.txt').write_text(message['params']['modeId'])
         result = {}
     elif method == 'session/prompt':
         threading.Thread(target=prompt, args=(message,), daemon=True).start()

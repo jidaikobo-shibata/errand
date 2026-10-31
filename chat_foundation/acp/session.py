@@ -18,7 +18,7 @@ class Session:
 
     def __init__(self, emit, *, dispatch=lambda fn: fn(), launch, instructions, summary_instructions,
                  assistant_name='AI', notice='', default_model=None, process_factory=JsonRpcProcess,
-                 file_uri=None, required_mode=None):
+                 file_uri=None, required_mode=None, approval_modes=()):
         self.emit, self.dispatch = emit, dispatch
         self.launch = launch
         self.instructions, self.summary_instructions = instructions, summary_instructions
@@ -26,6 +26,10 @@ class Session:
         self.default_model = default_model
         self.file_uri = file_uri or (lambda path: path.as_uri())
         self.required_mode = required_mode
+        self.approval_modes = tuple(approval_modes)
+        self.approval_mode = required_mode
+        self._active_mode = None
+        self._available_modes = set()
         self.process_factory = process_factory
         self.codex = None  # Legacy controller/host compatibility.
         self.approvals_reviewer = 'user'
@@ -95,10 +99,12 @@ class Session:
                 raise RpcError('会話を開始できませんでした。')
             mode = (result.get('modes') or {}).get('currentModeId')
             if self.required_mode and mode != self.required_mode:
-                # Never inherit auto-edit or blanket approval.
+                # Start with the explicitly configured default, never an inherited grant.
                 server.request('session/set_mode', {
                     'sessionId': result['sessionId'], 'modeId': self.required_mode,
                 }).result(timeout=15)
+            self._active_mode = self.required_mode or mode
+            self._available_modes = {m['id'] for m in (result.get('modes') or {}).get('availableModes', [])}
             models = result.get('models') or {}
             excluded = set(spec.get('excluded_models', ()))
             entries = []
@@ -148,6 +154,16 @@ class Session:
             raise ValueError('未対応の承認方法です。')
         self.approvals_reviewer = 'user'
 
+    def set_approval_mode(self, mode):
+        with self._lock:
+            if self._closed or self._busy or self._loading_models:
+                raise RpcError('作業・接続中は承認方法を変更できません。')
+            if mode not in {value for value, _ in self.approval_modes}:
+                raise ValueError('未対応の承認方法です。')
+            if self._session_id and mode not in self._available_modes:
+                raise RpcError('このCLIは指定した承認方法に対応していません。')
+            self.approval_mode = mode
+
     def send(self, text, model=None, effort=None, files=None):
         text = text.strip()
         # A chat message must not become an agent CLI slash/shell command.
@@ -186,6 +202,13 @@ class Session:
             server = self._connect(generation)
             if not self._current(generation):
                 return
+            if self.approval_modes and self.approval_mode != self._active_mode:
+                if self.approval_mode not in self._available_modes:
+                    raise RpcError('このCLIは指定した承認方法に対応していません。')
+                server.request('session/set_mode', {
+                    'sessionId': self._session_id, 'modeId': self.approval_mode,
+                }).result(timeout=15)
+                self._active_mode = self.approval_mode
             if self._supports_model_selection:
                 server.request('session/set_model', {'sessionId': self._session_id, 'modelId': model}).result(timeout=15)
             with self._lock:

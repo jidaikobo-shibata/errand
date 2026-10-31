@@ -54,9 +54,7 @@ class Launcher:
             'security': {'auth': {'selectedType': 'gemini-api-key'}, 'enablePermanentToolApproval': False},
             'telemetry': {'enabled': False}, 'hooksConfig': {'enabled': False},
             'general': {'enableAutoUpdate': False}, 'mcpServers': {},
-            'tools': {'confirmationRequired': ['run_shell_command', 'write_file', 'replace',
-                                               'web_fetch', 'google_web_search', 'mcp_*'],
-                      'exclude': ['enter_plan_mode', 'exit_plan_mode']},
+            'tools': {'exclude': ['enter_plan_mode', 'exit_plan_mode']},
         }
         if summary:
             settings['tools'] = {'core': []}

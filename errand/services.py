@@ -53,8 +53,10 @@ class AIServices(CodexServices):
                               instructions=self.product.instructions + self.product.gemini_cli_instructions,
                               summary_instructions=self.product.summary_instructions,
                               assistant_name='Gemini', default_model='gemini-3.5-flash-lite',
-                              file_uri=file_uri, required_mode='default', notice=(
-                                  'Gemini：ファイル操作・コマンド実行に対応します。追加操作は今回だけ許可できます。'
+                              file_uri=file_uri, required_mode='default',
+                              approval_modes=(('default', '自分で承認'), ('autoEdit', '編集を自動承認'),
+                                              ('yolo', '全操作を自動承認（YOLO）')), notice=(
+                                  'Gemini：ファイル操作・コマンド実行に対応します。承認方法はこのタブだけに適用します。'
                                   'Codexの自動レビュー・OSサンドボックスとは異なります。'))
         if self.settings.get('ai-provider') == 'gemini':
             from chat_foundation.gemini.session import Session as GeminiSession

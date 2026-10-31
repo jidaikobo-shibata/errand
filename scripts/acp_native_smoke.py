@@ -21,9 +21,9 @@ with tempfile.TemporaryDirectory(prefix='errand-native-local-') as directory:
         def do_POST(self):
             data = self.rfile.read(int(self.headers['Content-Length']))
             calls.append(self.path)
-            if len(calls) == 1:
+            if len(calls) in (1, 5, 11):
                 part = {'functionCall': {'name': 'write_file', 'args': {'file_path': str(target), 'content': 'native-created'}}}
-            elif len(calls) == 3:
+            elif len(calls) in (3, 7, 9):
                 part = {'functionCall': {'name': 'run_shell_command', 'args': {'command': 'printf native-shell'}}}
             else:
                 part = {'text': '完了しました。'}
@@ -50,7 +50,8 @@ return orig.apply(this,args);};''')
         return spec
     session = Session(lambda k, d: events.append((k, d)), launch=launch, instructions='offline fixture',
                       summary_instructions='summary', assistant_name='Gemini', required_mode='default',
-                      default_model='gemini-3.5-flash-lite', file_uri=file_uri)
+                      default_model='gemini-3.5-flash-lite', file_uri=file_uri,
+                      approval_modes=(('default', 'Manual'), ('autoEdit', 'Edit'), ('yolo', 'All')))
     def until(test):
         deadline = time.monotonic() + 20
         while not test():
@@ -96,6 +97,38 @@ return orig.apply(this,args);};''')
         until(lambda: not session.busy)
         assert events[-1][1]['status'] == 'completed'
         print('PASS: native command approval, execution and completion')
+        session.set_approval_mode('autoEdit')
+        events.clear()
+        session.send('編集を実行してください。')
+        until(lambda: not session.busy or bool(session._requests))
+        assert not session._requests
+        assert events[-1][1]['status'] == 'completed'
+        assert len(calls) == 6
+        session.send('コマンドを実行してください。')
+        until(lambda: bool(session._requests) or not session.busy)
+        assert session._requests, 'autoEdit must still ask before shell execution'
+        request = next(d for k, d in reversed(events) if k == 'request')
+        allow = next(o['optionId'] for o in request['params']['options'] if o['kind'] == 'allow_once')
+        session.answer(request['request_id'], {'option_id': allow})
+        until(lambda: not session.busy)
+        assert len(calls) == 8
+        print('PASS: native autoEdit allows edits and still asks for shell')
+        session.set_approval_mode('yolo')
+        events.clear()
+        session.send('コマンドを実行してください。')
+        until(lambda: not session.busy or bool(session._requests))
+        assert not session._requests
+        assert len(calls) == 10
+        assert events[-1][1]['status'] == 'completed'
+        print('PASS: native YOLO executes shell without permission dialog')
+        session.set_approval_mode('default')
+        session.send('編集を実行してください。')
+        until(lambda: bool(session._requests) or not session.busy)
+        assert session._requests
+        request = next(d for k, d in reversed(events) if k == 'request')
+        session.answer(request['request_id'], {'cancel': True})
+        until(lambda: not session.busy)
+        print('PASS: switching back to default restores edit approval')
         print('Prompt status:', events[-1][1].get('status'), 'Local API calls:', len(calls))
     finally:
         session.close()

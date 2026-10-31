@@ -113,6 +113,16 @@ class Conversation(Gtk.Box):
         if getattr(self.session, 'supports_auto_review', True) is False:
             self.approval_choice.set_sensitive(False)
             self.approval_choice.set_tooltip_text('このAIでは自分で承認します。自動レビューには対応していません。')
+        self.approval_modes = getattr(self.session, 'approval_modes', ())
+        if self.approval_modes:
+            self._updating_approval = True
+            self.approval_choice.set_model(Gtk.StringList.new([name for _, name in self.approval_modes]))
+            self.approval_choice.set_selected(0)
+            self._updating_approval = False
+            self.approval_choice.set_sensitive(True)
+            self.approval_choice.set_tooltip_text(
+                'このタブだけに適用します。編集の自動承認は編集ツールを許可し、その他は確認します。'
+                'YOLOはコマンド実行なども自動承認します。AIによる安全審査ではありません。')
         self.model_popover = Gtk.Popover(autohide=True)
         self.model_pointer = Gtk.GestureClick(button=0)
         self.model_pointer.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
@@ -608,7 +618,7 @@ class Conversation(Gtk.Box):
         self.summary_button.set_sensitive(not self.session.busy and self.selected_model() is not None
                                           and bool(self.conversation_text()))
         locked = self.session.busy
-        self.approval_choice.set_sensitive(not locked and getattr(self.session, 'supports_auto_review', True) is not False)
+        self.approval_choice.set_sensitive(not locked and (bool(self.approval_modes) or getattr(self.session, 'supports_auto_review', True) is not False))
         self.model_button.set_sensitive(not locked)
         if locked:
             self.model_popover.popdown()
@@ -661,6 +671,19 @@ class Conversation(Gtk.Box):
         self.update_model_label()
 
     def approval_changed(self, *_):
+        modes = getattr(self, 'approval_modes', ())
+        if modes:
+            if self._updating_approval:
+                return
+            previous = self.session.approval_mode
+            try:
+                self.session.set_approval_mode(modes[self.approval_choice.get_selected()][0])
+            except Exception as error:
+                self._updating_approval = True
+                self.approval_choice.set_selected(next(i for i, (mode, _) in enumerate(modes) if mode == previous))
+                self._updating_approval = False
+                self.status.set_text(str(error))
+            return
         if self._updating_approval or getattr(self.session, 'supports_auto_review', True) is False:
             return
         previous = self.session.approvals_reviewer

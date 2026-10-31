@@ -39,7 +39,7 @@ def verify(_):
         assert app.settings.get('approval-reviewer') == 'auto_review'
         assert view.approval_choice.get_visible()
         assert view.approval_choice.get_selected() == 0
-        assert not view.approval_choice.get_sensitive()
+        assert view.approval_choice.get_sensitive()
         assert original.input.get_buffer().get_char_count() == len('Codexの下書き')
 
         def launch(directory, instructions, summary=False):
@@ -49,6 +49,13 @@ def verify(_):
         view.session.launch = launch
         view.session.load_models()
         until(lambda: view.selected_model() is not None)
+        view.approval_choice.set_selected(1)
+        assert view.session.approval_mode == 'autoEdit'
+        assert app.settings.get('approval-reviewer') == 'auto_review'
+        view.approval_choice.set_selected(2)
+        assert view.session.approval_mode == 'yolo'
+        view.approval_choice.set_selected(0)
+        assert view.session.approval_mode == 'default'
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / '日本語 % file.txt'
             source.write_text('offline source')

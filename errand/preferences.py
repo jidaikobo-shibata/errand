@@ -63,13 +63,21 @@ class Preferences(Adw.PreferencesWindow):
         display.add(self.font)
         page.add(display)
         ai = Adw.PreferencesGroup(title='AI', description='変更は新しいタブから適用します。既存の会話は引き継ぎません。')
-        self.provider = Adw.ComboRow(title='新しいタブで使うAI',
-                                     model=Gtk.StringList.new(['Codex', 'Gemini（文章の会話・要約）']))
-        self.provider.set_selected(1 if app.settings.get('ai-provider') == 'gemini' else 0)
+        self.provider_ids = ('codex', 'gemini-cli', 'gemini')
+        self.provider = Adw.ComboRow(title='新しいタブで使うAI', model=Gtk.StringList.new([
+            'Codex', 'Gemini（ファイル操作に対応）', 'Gemini（文章の会話・要約）']))
+        self.provider.set_selected(self.provider_ids.index(app.settings.get('ai-provider')))
         ai.add(self.provider)
         self.gemini_env = Adw.EntryRow(title='Geminiのキー設定ファイルの絶対パス')
         self.gemini_env.set_text(app.settings.get('gemini-env-path'))
         ai.add(self.gemini_env)
+        self.gemini_path = Adw.EntryRow(title='Gemini CLI実行ファイルの絶対パス（空欄で自動検索）')
+        self.gemini_path.set_text(app.settings.get('gemini-cli-path'))
+        ai.add(self.gemini_path)
+        self.gemini_mcp = Adw.EntryRow(title='Gemini CLIのMCP設定ファイル（任意）')
+        self.gemini_mcp.set_text(app.settings.get('gemini-mcp-config'))
+        self.gemini_mcp.set_tooltip_text('指定した設定のMCP接続を新しいタブで利用します。認証や承認設定は取り込みません。')
+        ai.add(self.gemini_mcp)
         ai.add(Adw.ActionRow(title='Gemini APIの利用条件', subtitle=(
             'GEMINI_API_KEYを読み込みます。キーはErrandに保存しません。'
             '無料枠・料金・データ利用条件はGoogle AI Studioで確認してください。')))
@@ -164,8 +172,10 @@ class Preferences(Adw.PreferencesWindow):
     def save(self, *_):
         try:
             self.app.save_preferences({'font-size': int(self.font.get_value()),
-                                       'ai-provider': 'gemini' if self.provider.get_selected() == 1 else 'codex',
+                                       'ai-provider': self.provider_ids[self.provider.get_selected()],
                                        'gemini-env-path': self.gemini_env.get_text().strip(),
+                                       'gemini-cli-path': self.gemini_path.get_text().strip(),
+                                       'gemini-mcp-config': self.gemini_mcp.get_text().strip(),
                                        'codex-path': self.path.get_text().strip(),
                                        'open-errand': self.shortcut_value,
                                        'shortcuts': self.shortcut_overrides})

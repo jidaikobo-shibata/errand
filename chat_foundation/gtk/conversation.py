@@ -105,11 +105,14 @@ class Conversation(Gtk.Box):
         self.approval_choice = Gtk.DropDown.new_from_strings(["自分で承認", "自動レビュー"])
         reviewer = app.settings.get('approval-reviewer')
         self.session.set_approval_reviewer(reviewer)
-        self.approval_choice.set_selected(1 if reviewer == 'auto_review' else 0)
+        self.approval_choice.set_selected(1 if self.session.approvals_reviewer == 'auto_review' else 0)
         self._updating_approval = False
         self.approval_choice.update_property([Gtk.AccessibleProperty.LABEL], ["このタブの承認方法"])
         self.approval_choice.connect("notify::selected", self.approval_changed)
         self.approval_choice.set_tooltip_text("このタブの承認方法。選択は新しいタブと次回起動にも引き継ぎます。自動レビューはApprove for meに相当し、全許可ではありません。")
+        if getattr(self.session, 'supports_auto_review', True) is False:
+            self.approval_choice.set_sensitive(False)
+            self.approval_choice.set_tooltip_text('このAIでは自分で承認します。自動レビューには対応していません。')
         self.model_popover = Gtk.Popover(autohide=True)
         self.model_pointer = Gtk.GestureClick(button=0)
         self.model_pointer.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
@@ -571,10 +574,13 @@ class Conversation(Gtk.Box):
             attachments = dict(self.attachments)
             if self.attachments and getattr(self.session, 'supports_files', True) is False:
                 raise ValueError('このAI接続ではファイルを扱えません。')
-            if self.attachments:
+            extra = {}
+            if self.attachments and getattr(self.session, 'supports_file_references', False) is True:
+                extra['files'] = list(self.attachments)
+            elif self.attachments:
                 text += "\n\n対象ファイル（ローカルの絶対パス、JSON配列）:\n" + json.dumps(list(self.attachments), ensure_ascii=False)
             self.session.send(text,
-                              model=entry["model"] if entry else None, effort=self.selected_effort())
+                              model=entry["model"] if entry else None, effort=self.selected_effort(), **extra)
             self.pending_submission = (draft, attachments, text.strip())
             self.model_popover.popdown()
             self.clear_navigation_highlight()
@@ -602,7 +608,7 @@ class Conversation(Gtk.Box):
         self.summary_button.set_sensitive(not self.session.busy and self.selected_model() is not None
                                           and bool(self.conversation_text()))
         locked = self.session.busy
-        self.approval_choice.set_sensitive(not locked)
+        self.approval_choice.set_sensitive(not locked and getattr(self.session, 'supports_auto_review', True) is not False)
         self.model_button.set_sensitive(not locked)
         if locked:
             self.model_popover.popdown()
@@ -655,7 +661,7 @@ class Conversation(Gtk.Box):
         self.update_model_label()
 
     def approval_changed(self, *_):
-        if self._updating_approval:
+        if self._updating_approval or getattr(self.session, 'supports_auto_review', True) is False:
             return
         previous = self.session.approvals_reviewer
         try:
@@ -1095,7 +1101,20 @@ class Conversation(Gtk.Box):
                     self.session.answer(request_id, result)
             except Exception as error:
                 self.status.set_text(str(error))
-        if method == "mcpServer/elicitation/request":
+        if method == 'agent/permission':
+            box.append(label('この操作を今回だけ許可しますか？'))
+            self.approval_details(box, params)
+            row = Gtk.Box(spacing=8)
+            for option in params.get('options', []):
+                title = '今回だけ許可' if option['kind'] == 'allow_once' else '拒否'
+                button = Gtk.Button(label=title)
+                button.connect('clicked', lambda _, value=option['optionId']: respond({'option_id': value}))
+                row.append(button)
+            cancel = Gtk.Button(label='作業を中止')
+            cancel.connect('clicked', lambda _: respond({'cancel': True}))
+            row.append(cancel)
+            box.append(row)
+        elif method == "mcpServer/elicitation/request":
             box.append(ElicitationView(params, respond, lambda result: respond(result, remember=True)))
         elif method == "item/tool/requestUserInput":
             box.append(label("Codexからの質問"))

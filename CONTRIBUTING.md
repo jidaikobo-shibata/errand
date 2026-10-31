@@ -15,12 +15,42 @@ Markdown・数式・MCPフォームの本体は `chat_foundation/core` と `chat
 製品固有のimportを追加しないでください。共通コードを追加した配布物では、このパッケージも
 必ず収録します。会話・ログイン・準備の生成は `errand/services.py` で組み立てます。
 
-通信・会話制御・ログインの本体は `chat_foundation/codex` にあります。
+Codexの会話制御・ログインの本体は `chat_foundation/codex` にあります。
 共通Sessionには指示文・要約指示・接続情報を明示的に渡し、接続には検証用のcommand、
 またはCodex実行ファイルの探索関数を渡します。共通Loginにも接続情報と接続方法を渡します。
 共通側は製品の保存先や指示を探しません。`errand/session.py` と `errand/login.py` は
 従来の呼び出しにErrandの既定値を補う薄い層です。`errand/protocol.py` は実行ファイル探索と
 共通通信の再公開を担い、取得・配置・manifestは引き続きErrandの配布処理で管理します。
+
+JSONLの双方向プロセス通信・子プロセス終了は`chat_foundation/core/process_rpc.py`へ分離しました。
+CodexのAppServerは薄い互換層で、JSON-RPCバージョンフィールドを付けない従来の通信を維持します。
+ACPでは同じ通信に`jsonrpc: "2.0"`と専用の環境を渡します。共通層へエージェント名・製品設定を
+探す処理を追加しないでください。
+
+ACP v1の会話・モデル・進捗・今回限りの承認・中断・要約は`chat_foundation/acp/session.py`です。
+起動関数からcommand/cwd/environment、任意の認証要求・接続情報・モデル除外を渡します。
+モデル選択がないエージェントは既定のモデルだけで使い、モードの強制は製品側から指定します。
+依頼文をCLIのスラッシュ・シェルコマンドへ変換しません。未知の要求や常時許可しかない要求は
+拒否し、中断・終了では保留中の確認をキャンセルします。ファイル参照のURI変換も注入できます。
+
+Gemini CLIの探索・一時設定・キー取得・MCP設定の選択は`errand/gemini_cli.py`にあります。
+APIキーはACPの認証要求で渡し、子プロセス環境や設定ファイルへ保存しません。
+既存のCLIホームを上書きせず、タブ専用ホーム・既定承認モード・非恒久的な許可を使います。
+CLIのOSサンドボックスをCodexと同じものとして扱わないでください。
+共通画面は`agent/permission`を表示し、エージェント別の分岐を持ちません。
+supports_auto_review=Falseなら手動承認に固定し、保存済みのCodexの承認設定を変えません。
+supports_file_references=Trueならsendのfiles引数へ絶対パスを渡し、従来のCodex送信は維持します。
+
+```bash
+python3 -m unittest discover -s tests -p 'test_acp.py' -v
+env GSETTINGS_BACKEND=memory python3 scripts/acp_smoke.py
+python3 scripts/acp_native_smoke.py
+```
+
+ACP画面検証も独立Wayland・D-Bus・一時HOME/設定で行います。native_smokeはインストール済み
+Gemini CLIを使いますが、ダミーキー・一時ファイル・ループバックの疑似APIのみを使い、
+Nodeの外部ネットワーク接続を遮断します。CLI本体やOSの設定を変更しません。
+この検証は実モデルの応答速度・品質や実MCP接続を確認するものではありません。
 
 Geminiの文章生成・会話履歴・中断・キー読み込みは `chat_foundation/gemini` にあります。
 製品は `errand/services.py` の `AIServices` で接続先を選び、キー設定ファイルの場所・

@@ -1,4 +1,4 @@
-"""Compose Codex services outside the conversation widgets."""
+"""Compose agent services outside the conversation widgets."""
 from functools import partial
 
 from .protocol import find_codex
@@ -43,6 +43,19 @@ class AIServices(CodexServices):
         self.settings = settings
 
     def conversation(self, emit, *, dispatch, codex, command):
+        if self.settings.get('ai-provider') == 'gemini-cli':
+            from chat_foundation.acp.session import Session as ACPSession
+            from .gemini_cli import Launcher, file_uri
+            launch = Launcher(executable=self.settings.get('gemini-cli-path'),
+                              credentials_path=self.settings.get('gemini-env-path') or None,
+                              mcp_config=self.settings.get('gemini-mcp-config'), client_info=self.product.client_info())
+            return ACPSession(emit, dispatch=dispatch, launch=launch,
+                              instructions=self.product.instructions + self.product.gemini_cli_instructions,
+                              summary_instructions=self.product.summary_instructions,
+                              assistant_name='Gemini', default_model='gemini-3.5-flash-lite',
+                              file_uri=file_uri, required_mode='default', notice=(
+                                  'Gemini：ファイル操作・コマンド実行に対応します。追加操作は今回だけ許可できます。'
+                                  'Codexの自動レビュー・OSサンドボックスとは異なります。'))
         if self.settings.get('ai-provider') == 'gemini':
             from chat_foundation.gemini.session import Session as GeminiSession
             return GeminiSession(emit, dispatch=dispatch,
@@ -52,6 +65,6 @@ class AIServices(CodexServices):
         return super().conversation(emit, dispatch=dispatch, codex=codex, command=command)
 
     def login(self, emit, *, dispatch, codex, command):
-        if self.settings.get('ai-provider') == 'gemini':
+        if self.settings.get('ai-provider') in ('gemini', 'gemini-cli'):
             return _NoLogin()
         return super().login(emit, dispatch=dispatch, codex=codex, command=command)

@@ -14,7 +14,7 @@ from chat_foundation.gemini.session import Session, DEFAULT_MODEL
 app = Application(isolated=True, smoke=True)
 failures = []
 stream_release = threading.Event()
-sys.excepthook = lambda kind, error, traceback: failures.append(error)
+sys.excepthook = lambda kind, error, traceback: (failures.append(error), sys.__excepthook__(kind, error, traceback))
 
 
 def drain_until(predicate):
@@ -35,7 +35,7 @@ def verify(_):
             credentials.write_text('GEMINI_API_KEY=fake-key\n')
             app.open_preferences()
             prefs = app.preferences
-            prefs.provider.set_selected(1)
+            prefs.provider.set_selected(2)
             prefs.gemini_env.set_text(str(credentials))
             prefs.save()
             assert app.preferences is None

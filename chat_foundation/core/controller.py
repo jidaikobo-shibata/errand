@@ -4,7 +4,7 @@ Implementations deliver events through the dispatch function provided by the hos
 Events retain their existing names and payloads during the incremental migration.
 This protocol describes the existing behavior; it adds no runtime wrapper.
 
-Controllers may supply assistant_name, notice, supports_files, supports_approvals
+Controllers may supply assistant_name, notice, startup_message, supports_files, supports_approvals
 and supports_reasoning. The shared view defaults to the existing Codex behavior
 when those optional display/capability attributes are absent.
 Optional approval_modes (id/label pairs), approval_mode and set_approval_mode

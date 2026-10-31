@@ -149,11 +149,12 @@ class Conversation(Gtk.Box):
         self.scroll.set_child(self.history)
         body.append(self.scroll)
         self.backend_label = status_label(self.backend_notice)
+        self.backend_label.set_visible(bool(self.backend_notice))
         body.append(self.backend_label)
         self.request_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         body.append(self.request_box)
-        self.status = status_label('お願いを入力してください。' if self.backend_notice
-                                   else random.choice(self.app.product.startup_tips))
+        self.status = status_label(getattr(self.session, 'startup_message', None) or (
+            'お願いを入力してください。' if self.backend_notice else random.choice(self.app.product.startup_tips)))
         self.status.add_css_class("errand-status")
         self.status.update_property([Gtk.AccessibleProperty.LABEL], ["実行状況"])
         self.status_scroll = Gtk.ScrolledWindow(
@@ -1094,8 +1095,8 @@ class Conversation(Gtk.Box):
             self.update_navigation()
             for request_id in list(self.requests):
                 self.remove_request(request_id)
-            self.status.set_text('お願いを入力してください。' if self.backend_notice
-                                 else random.choice(self.app.product.startup_tips))
+            self.status.set_text(getattr(self.session, 'startup_message', None) or (
+                'お願いを入力してください。' if self.backend_notice else random.choice(self.app.product.startup_tips)))
             self.update_model_controls()
             self.focus_input()
 

@@ -10,6 +10,7 @@ from ..core.process_rpc import JsonRpcProcess, RpcError
 
 
 class Session:
+    startup_message = 'お願いを入力してください。'
     supports_files = True
     supports_approvals = True
     supports_auto_review = False

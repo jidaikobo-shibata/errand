@@ -30,11 +30,16 @@ def verify(_):
         original.input.get_buffer().set_text('Codexの下書き')
         app.settings.set_approval_reviewer('auto_review')
         app.open_preferences()
+        assert app.preferences.provider.get_model().get_n_items() == 2
+        assert app.preferences.provider.get_model().get_string(1) == 'Gemini'
         app.preferences.provider.set_selected(1)
         app.preferences.save()
         assert app.settings.get('ai-provider') == 'gemini-cli'
+        assert app.preferences is None
         view = app.window.new_tab()
         assert isinstance(view.session, Session)
+        assert not view.backend_label.get_visible()
+        assert view.session.notice == ''
         assert view.session.approvals_reviewer == 'user'
         assert app.settings.get('approval-reviewer') == 'auto_review'
         assert view.approval_choice.get_visible()
@@ -103,6 +108,8 @@ def verify(_):
             assert codex.session.approvals_reviewer == 'auto_review'
             assert original.input.get_buffer().get_char_count() == len('Codexの下書き')
             assert isinstance(view.session, Session)
+            assert not view.backend_label.get_visible()
+            assert view.session.notice == ''
             # Exercise the preserved Codex wire adapter through the same GTK widgets.
             codex.session.command = [sys.executable, str(Path(__file__).resolve().parents[1] / 'tests/fake_server.py')]
             codex.session.load_models()

@@ -63,9 +63,9 @@ class Preferences(Adw.PreferencesWindow):
         display.add(self.font)
         page.add(display)
         ai = Adw.PreferencesGroup(title='AI', description='変更は新しいタブから適用します。既存の会話は引き継ぎません。')
-        self.provider_ids = ('codex', 'gemini-cli', 'gemini')
+        self.provider_ids = ('codex', 'gemini-cli')
         self.provider = Adw.ComboRow(title='新しいタブで使うAI', model=Gtk.StringList.new([
-            'Codex', 'Gemini（ファイル操作に対応）', 'Gemini（文章の会話・要約）']))
+            'Codex', 'Gemini']))
         self.provider.set_selected(self.provider_ids.index(app.settings.get('ai-provider')))
         ai.add(self.provider)
         self.gemini_env = Adw.EntryRow(title='Geminiのキー設定ファイルの絶対パス')

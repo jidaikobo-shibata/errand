@@ -55,18 +55,10 @@ class AIServices(CodexServices):
                               assistant_name='Gemini', default_model='gemini-3.5-flash-lite',
                               file_uri=file_uri, required_mode='default', permission_policy=approve_attached_read,
                               approval_modes=(('default', '自分で承認'), ('autoEdit', '編集を自動承認'),
-                                              ('yolo', '全操作を自動承認（YOLO）')), notice=(
-                                  'Gemini：ファイル操作・コマンド実行に対応します。承認方法はこのタブだけに適用します。'
-                                  'Codexの自動レビュー・OSサンドボックスとは異なります。'))
-        if self.settings.get('ai-provider') == 'gemini':
-            from chat_foundation.gemini.session import Session as GeminiSession
-            return GeminiSession(emit, dispatch=dispatch,
-                                 instructions=self.product.instructions + self.product.gemini_instructions,
-                                 summary_instructions=self.product.summary_instructions,
-                                 credentials_path=self.settings.get('gemini-env-path') or None)
+                                              ('yolo', '全操作を自動承認（YOLO）')))
         return super().conversation(emit, dispatch=dispatch, codex=codex, command=command)
 
     def login(self, emit, *, dispatch, codex, command):
-        if self.settings.get('ai-provider') in ('gemini', 'gemini-cli'):
+        if self.settings.get('ai-provider') == 'gemini-cli':
             return _NoLogin()
         return super().login(emit, dispatch=dispatch, codex=codex, command=command)

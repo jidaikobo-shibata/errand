@@ -22,7 +22,10 @@ def validate(values):
     for key in ('codex-path', 'open-errand'):
         if not isinstance(result[key], str):
             raise ValueError('設定の形式が正しくありません。')
-    if result['ai-provider'] not in ('codex', 'gemini', 'gemini-cli'):
+    # Legacy text-only Gemini preferences now use the single CLI backend.
+    if result['ai-provider'] == 'gemini':
+        result['ai-provider'] = 'gemini-cli'
+    if result['ai-provider'] not in ('codex', 'gemini-cli'):
         raise ValueError('AIの選択が正しくありません。')
     env_path = result['gemini-env-path']
     if not isinstance(env_path, str) or (env_path and not Path(env_path).is_absolute()):

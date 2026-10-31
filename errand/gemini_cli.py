@@ -99,13 +99,16 @@ class Launcher:
         if key is None:
             key = read_api_key(self.credentials_path or Path.home() / '.gemini/.env')
         root = Path(directory)
-        work = prepare_work(root, instructions)
-        # Stop CLI dotenv discovery at the private workspace, including parent /tmp.
-        # --ignore-env alone does not ignore trusted .gemini/.env ancestors.
-        # A fresh CLI home prevents inherited permanent grants, hooks and persistent history.
-        home = root / ('runtime-' + uuid.uuid4().hex)
+        # A previous agent may have created .gemini/settings.json or .gemini/.env.
+        # Never start a CLI in that workspace again, including after a disconnect.
+        runtime = root / ('runtime-' + uuid.uuid4().hex)
+        runtime.mkdir(mode=0o700)
+        work = prepare_work(runtime, instructions)
+        # The managed profile is outside the editable workspace. Both are fresh.
+        home = runtime / 'profile'
         config = home / '.gemini'
-        config.mkdir(mode=0o700, parents=True)
+        home.mkdir(mode=0o700)
+        config.mkdir(mode=0o700)
         settings = {
             'security': {'auth': {'selectedType': 'gemini-api-key'}, 'enablePermanentToolApproval': False},
             'telemetry': {'enabled': False}, 'hooksConfig': {'enabled': False},

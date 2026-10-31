@@ -39,7 +39,12 @@ APIキーは`errand/secret_store.py`で製品IDごとにOSの保管庫から取�
 Ubuntuはlibsecret GI、macOSは`macos_secret_store.py`のSecurity.framework（ctypes）を利用し、
 キーを引数に渡すプロセスや平文ファイルは使いません。OSアクセスはGUIスレッド外で行います。
 APIキーはACPの認証要求で渡し、子プロセス環境や設定ファイルへ保存しません。
-CLIの作業ディレクトリには空の.envを作り、親ディレクトリのdotenv探索を遮断します。
+CLIの起動・再接続ごとに新規runtimeを作り、workとprofileを兄弟ディレクトリに分離します。
+以前のworkをcwdに再利用せず、.gemini/.envや.gemini/settings.jsonの持ち越しを防ぎます。
+新しいworkには空の.envを作り、親ディレクトリのdotenv探索も遮断します。
+旧workの設定や中間ファイルを新workへコピーしないでください。
+`scripts/gemini_security_smoke.py`は実CLIのfetchをループバック疑似APIへ接続し、
+ネットワーク層で外部接続を拒否して、植え込んだ設定の非継承と明示MCPの動作を確認します。
 中断は依頼IDを捕捉し、古い中断処理が次の依頼・プロセスを止めないようにします。
 既存のCLIホームを上書きせず、タブ専用ホーム・既定承認モード・非恒久的な許可を使います。
 CLIのOSサンドボックスをCodexと同じものとして扱わないでください。

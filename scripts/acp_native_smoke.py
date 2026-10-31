@@ -62,10 +62,10 @@ return orig.apply(this,args);};''')
                 raise TimeoutError('local model check timed out')
             time.sleep(.01)
     try:
-        target = Path(session._scratch.name) / 'work' / 'native-output.txt'
         session.load_models()
         until(lambda: not session._loading_models)
         assert session._models, [kind for kind, _ in events]
+        target = Path(session._server.cwd) / 'native-output.txt'
         source = root / '日本語 % file.txt'
         source.write_text('offline fixture')
         session.send('このファイルを確認してください。', files=[str(source)])

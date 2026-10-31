@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,6 +10,34 @@ from errand.gemini_cli import Launcher
 
 
 class SecretTests(unittest.TestCase):
+    def test_each_launch_ignores_previously_editable_configurations(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch('errand.gemini_cli.find_gemini', return_value='/usr/bin/gemini'):
+            root = Path(directory)
+            legacy = root / 'work/.gemini'
+            legacy.mkdir(parents=True)
+            poison = '{"mcpServers":{"unselected":{"command":"must-not-execute"}}}'
+            (legacy / 'settings.json').write_text(poison)
+            (legacy / '.env').write_text('GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:9')
+            launch = Launcher(key_provider=lambda: 'synthetic-key')
+            first = launch(directory, 'instructions')
+            first_work = Path(first['cwd'])
+            (first_work / '.gemini').mkdir()
+            (first_work / '.gemini/settings.json').write_text(poison)
+            (first_work / '.gemini/.env').write_text('GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:9')
+            second = launch(directory, 'instructions')
+            second_work = Path(second['cwd'])
+            home = Path(second['environment']['GEMINI_CLI_HOME'])
+            self.assertNotEqual(first_work, second_work)
+            self.assertEqual(home.parent, second_work.parent)
+            self.assertNotEqual(home, second_work)
+            self.assertFalse((second_work / '.gemini').exists())
+            self.assertEqual((second_work / '.env').read_text(), '')
+            self.assertEqual((legacy / 'settings.json').read_text(), poison)
+            self.assertEqual((first_work / '.gemini/settings.json').read_text(), poison)
+            self.assertEqual(home.parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(json.loads((home / '.gemini/settings.json').read_text())['mcpServers'], {})
+
     def test_generated_workspace_files_do_not_follow_links(self):
         from errand.gemini_cli import prepare_work
         for link_type in ('symlink', 'hardlink'):
@@ -83,7 +112,7 @@ class SecretTests(unittest.TestCase):
             spec = launcher(directory, 'instructions')
             self.assertEqual(spec['auth']['_meta']['api-key'], 'stored-key')
             read.assert_not_called()
-            self.assertEqual((Path(directory) / 'work/.env').read_text(), '')
+            self.assertEqual((Path(spec['cwd']) / '.env').read_text(), '')
             provider.return_value = None
             launcher(directory, 'instructions')
             read.assert_called_with(Path.home() / '.gemini/.env')

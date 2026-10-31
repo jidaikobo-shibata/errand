@@ -44,7 +44,9 @@ CLIの作業ディレクトリには空の.envを作り、親ディレクトリ�
 既存のCLIホームを上書きせず、タブ専用ホーム・既定承認モード・非恒久的な許可を使います。
 CLIのOSサンドボックスをCodexと同じものとして扱わないでください。
 共通画面は`agent/permission`を表示し、エージェント別の分岐を持ちません。
-approval_modes指定時はCLI固有の承認方法をタブ内で選択します。supports_auto_review=Falseは
+approval_modes指定時はCLI固有の承認方法を選択します。任意のinitial_approval_modeと
+save_approval_modeを注入すると製品側の保存済み値・保存処理を使えます。Geminiでは
+gemini-approval-modeへ保存し、Codexのapproval-reviewerから分離します。要約には引き継ぎません。supports_auto_review=Falseは
 Codexの保存済み承認設定を引き継がず、CLI固有モード未指定の場合は手動承認に固定します。
 supports_file_references=Trueならsendのfiles引数へ絶対パスを渡し、従来のCodex送信は維持します。
 

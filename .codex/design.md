@@ -880,3 +880,17 @@ Codexと未指定のACP製品は従来通り。要約用の接続にも同じフ
 通常回答内の同じ文字列の保持を確認。実CLI＋外部通信遮断＋ローカル疑似APIでも
 autoEdit/yolo/defaultの切り替え時に通知が混ざらず承認動作を維持することを確認。
 未確認：macOS実機・実Google API。次は再起動後に利用者の画面で確認する。
+
+### Gemini承認モードの保存・復元（2026-10-31）
+
+依頼によりGeminiの承認モードをgemini-approval-modeへ保存し、新規タブ・次回起動に
+引き継ぐ。初期値default。Codexのapproval-reviewerとは別キーで管理する。
+共通ACPへ任意のinitial_approval_mode/save_approval_modeを注入する構造とし、
+保存失敗時はSessionと選択表示を変更前に保つ。未対応CLIでは依頼実行前に停止する。
+新規タブは保存値を表示し、次のprompt前にCLIへ適用する。既存の別タブは変更しない。
+要約用Sessionへ保存値・コールバックは引き継がず、default/ツール無効を維持した。
+READMEとtooltipを保存仕様へ更新。今回の依頼はYOLOを含む選択値の保存を対象とする。
+単体184件成功（macOS専用3件skip）。追加テストで保存・再読込・不正値拒否・
+保存失敗時の維持と、保存YOLOが疑似ACPに適用され内部通知が混ざらないことを確認。
+分離Wayland/D-Bus/一時設定で新規タブへの復元・既存タブ保持・Codex設定保持も確認。
+未確認：macOS実機・実Google API。次は再起動後に利用者の選択・復元を確認する。

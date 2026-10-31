@@ -117,11 +117,14 @@ class Conversation(Gtk.Box):
         if self.approval_modes:
             self._updating_approval = True
             self.approval_choice.set_model(Gtk.StringList.new([name for _, name in self.approval_modes]))
-            self.approval_choice.set_selected(0)
+            self.approval_choice.set_selected(next(
+                i for i, (mode, _) in enumerate(self.approval_modes) if mode == self.session.approval_mode))
             self._updating_approval = False
             self.approval_choice.set_sensitive(True)
             self.approval_choice.set_tooltip_text(
-                'このタブだけに適用します。編集の自動承認は編集ツールを許可し、その他は確認します。'
+                ('選択は新しいタブと次回起動にも引き継ぎます。既存の別タブは変更しません。'
+                 if getattr(self.session, 'save_approval_mode', None) else 'このタブだけに適用します。') +
+                '編集の自動承認は編集ツールを許可し、その他は確認します。'
                 'YOLOはコマンド実行なども自動承認します。AIによる安全審査ではありません。')
         self.model_popover = Gtk.Popover(autohide=True)
         self.model_pointer = Gtk.GestureClick(button=0)

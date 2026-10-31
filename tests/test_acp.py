@@ -81,6 +81,45 @@ class ACPTests(unittest.TestCase):
         self.assertEqual([d['text'] for k, d in events if k == 'assistant'], ['[MODE_UPDATE] autoEdit'])
         self.assertFalse(is_mode_notice('説明: [MODE_UPDATE] autoEdit', 'autoEdit'))
 
+    def test_saved_mode_restores_without_changing_codex_and_saves_atomically(self):
+        from errand.settings import Settings, validate
+        from errand.services import AIServices
+        from errand.product import ERRAND
+        with tempfile.TemporaryDirectory() as directory:
+            settings = Settings(path=Path(directory) / 'preferences.json')
+            settings.save({'approval-reviewer': 'auto_review'})
+            self.assertEqual(settings.get('gemini-approval-mode'), 'default')
+            for mode in ('autoEdit', 'yolo', 'default'):
+                settings.set_gemini_approval_mode(mode)
+                restored = Settings(path=settings.path)
+                self.assertEqual(restored.get('gemini-approval-mode'), mode)
+                self.assertEqual(restored.get('approval-reviewer'), 'auto_review')
+            settings.set_gemini_approval_mode('yolo')
+            settings.save({**settings.values, 'ai-provider': 'gemini-cli'})
+            restored = Settings(path=settings.path)
+            service = AIServices(ERRAND, restored)
+            session = service.conversation(lambda *_: None, dispatch=lambda f: f(), codex=None, command=None)
+            self.addCleanup(session.close)
+            self.assertEqual(session.approval_mode, 'yolo')
+            fixture, _, _ = self.make_session()
+            session.launch = fixture.launch
+            session.load_models()
+            self.until(lambda: not session._loading_models)
+            session.send('hello')
+            self.until(lambda: not session.busy)
+            self.assertEqual((Path(session._scratch.name) / 'mode.txt').read_text(), 'yolo')
+            self.assertEqual(session._text, '回答です。')
+            session.set_approval_mode('autoEdit')
+            self.assertEqual(Settings(path=settings.path).get('gemini-approval-mode'), 'autoEdit')
+            self.assertEqual(restored.get('approval-reviewer'), 'auto_review')
+            restored.error = 'unreadable settings'
+            with self.assertRaises(ValueError):
+                session.set_approval_mode('yolo')
+            self.assertEqual(session.approval_mode, 'autoEdit')
+            for mode in ('auto_review', '', None):
+                with self.assertRaises(ValueError):
+                    validate({'gemini-approval-mode': mode})
+
     def test_native_approval_modes_apply_before_prompt_and_reset(self):
         session, events, _ = self.make_session()
         session.approval_modes = (('default', 'Manual'), ('autoEdit', 'Edit'), ('yolo', 'All'))

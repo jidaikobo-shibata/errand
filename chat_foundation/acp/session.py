@@ -19,7 +19,8 @@ class Session:
 
     def __init__(self, emit, *, dispatch=lambda fn: fn(), launch, instructions, summary_instructions,
                  assistant_name='AI', notice='', default_model=None, process_factory=JsonRpcProcess,
-                 file_uri=None, required_mode=None, approval_modes=(), permission_policy=None, mode_notice_filter=None):
+                 file_uri=None, required_mode=None, approval_modes=(), permission_policy=None, mode_notice_filter=None,
+                 initial_approval_mode=None, save_approval_mode=None):
         self.emit, self.dispatch = emit, dispatch
         self.launch = launch
         self.instructions, self.summary_instructions = instructions, summary_instructions
@@ -32,7 +33,8 @@ class Session:
         self.permission_policy = permission_policy
         self._attached_paths = ()
         self.approval_modes = tuple(approval_modes)
-        self.approval_mode = required_mode
+        self.approval_mode = initial_approval_mode or required_mode
+        self.save_approval_mode = save_approval_mode
         self._active_mode = None
         self._available_modes = set()
         self.process_factory = process_factory
@@ -174,6 +176,8 @@ class Session:
                 raise ValueError('未対応の承認方法です。')
             if self._session_id and mode not in self._available_modes:
                 raise RpcError('このCLIは指定した承認方法に対応していません。')
+            if self.save_approval_mode:
+                self.save_approval_mode(mode)
             self.approval_mode = mode
 
     def send(self, text, model=None, effort=None, files=None):

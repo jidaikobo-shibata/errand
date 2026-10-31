@@ -75,9 +75,15 @@ def verify(_):
         until(lambda: view.selected_model() is not None)
         view.approval_choice.set_selected(1)
         assert view.session.approval_mode == 'autoEdit'
+        assert app.settings.get('gemini-approval-mode') == 'autoEdit'
+        inherited = app.window.new_tab()
+        assert inherited.session.approval_mode == 'autoEdit'
+        assert inherited.approval_choice.get_selected() == 1
         assert app.settings.get('approval-reviewer') == 'auto_review'
         view.approval_choice.set_selected(2)
         assert view.session.approval_mode == 'yolo'
+        assert app.settings.get('gemini-approval-mode') == 'yolo'
+        assert inherited.session.approval_mode == 'autoEdit'
         view.approval_choice.set_selected(0)
         assert view.session.approval_mode == 'default'
         with tempfile.TemporaryDirectory() as directory:

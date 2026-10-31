@@ -58,6 +58,8 @@ class AIServices(CodexServices):
                               assistant_name='Gemini', default_model='gemini-3.5-flash-lite',
                               file_uri=file_uri, required_mode='default', permission_policy=approve_attached_read,
                               mode_notice_filter=is_mode_notice,
+                              initial_approval_mode=self.settings.get('gemini-approval-mode'),
+                              save_approval_mode=self.settings.set_gemini_approval_mode,
                               approval_modes=(('default', '自分で承認'), ('autoEdit', '編集を自動承認'),
                                               ('yolo', '全操作を自動承認（YOLO）')))
         return super().conversation(emit, dispatch=dispatch, codex=codex, command=command)

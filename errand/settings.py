@@ -9,7 +9,7 @@ import tempfile
 
 DEFAULTS = {'font-size': 10, 'codex-path': '', 'open-errand': '', 'shortcuts': {},
             'approval-reviewer': 'user', 'ai-provider': 'codex',
-            'gemini-cli-path': '', 'gemini-mcp-config': '',
+            'gemini-cli-path': '', 'gemini-mcp-config': '', 'gemini-approval-mode': 'default',
             'gemini-env-path': str(Path.home() / '.gemini/.env')}
 
 
@@ -41,6 +41,8 @@ def validate(values):
     result['shortcuts'] = dict(shortcuts)
     if result['approval-reviewer'] not in ('user', 'auto_review'):
         raise ValueError('承認方法の設定が正しくありません。')
+    if result['gemini-approval-mode'] not in ('default', 'autoEdit', 'yolo'):
+        raise ValueError('Geminiの承認方法の設定が正しくありません。')
     path = result['codex-path']
     if path and (not Path(path).is_absolute() or not Path(path).is_file() or not os.access(path, os.X_OK)):
         raise ValueError('Codexの実行可能なファイルを絶対パスで指定してください。')
@@ -90,6 +92,12 @@ class Settings:
     def set_approval_reviewer(self, reviewer):
         values = {key: self.get(key) for key in DEFAULTS}
         checked = validate({**values, 'approval-reviewer': reviewer, 'codex-path': ''})
+        checked['codex-path'] = values['codex-path']
+        self._store(checked)
+
+    def set_gemini_approval_mode(self, mode):
+        values = {key: self.get(key) for key in DEFAULTS}
+        checked = validate({**values, 'gemini-approval-mode': mode, 'codex-path': ''})
         checked['codex-path'] = values['codex-path']
         self._store(checked)
 

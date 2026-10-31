@@ -67,6 +67,18 @@ class ACPTests(unittest.TestCase):
         self.assertFalse(any(kind in ('submitted', 'delta') for kind, _ in events))
         self.assertEqual(events[-1][1]['status'], 'failed')
 
+    def test_attachment_policy_is_scoped_to_current_input_and_native_request(self):
+        from errand.gemini_cli import approve_attached_read
+        tool = {'kind': 'read', 'toolCallId': 'resolve-prompt-file-uuid',
+                'title': 'Allow access to absolute path: /tmp/attached.txt'}
+        for mode in ('autoEdit', 'yolo'):
+            self.assertTrue(approve_attached_read(tool, ['/tmp/attached.txt'], mode))
+        self.assertFalse(approve_attached_read(tool, ['/tmp/attached.txt'], 'default'))
+        self.assertFalse(approve_attached_read(tool, ['/tmp/other.txt'], 'yolo'))
+        self.assertFalse(approve_attached_read(tool, [], 'yolo'))
+        self.assertFalse(approve_attached_read({**tool, 'kind': 'edit'}, ['/tmp/attached.txt'], 'yolo'))
+        self.assertFalse(approve_attached_read({**tool, 'toolCallId': 'other'}, ['/tmp/attached.txt'], 'yolo'))
+
     def test_models_streaming_turns_and_reset(self):
         session, events, launches = self.make_session()
         self.assertEqual([entry['model'] for entry in session._models], ['offline-model'])

@@ -9,6 +9,8 @@ and supports_reasoning. The shared view defaults to the existing Codex behavior
 when those optional display/capability attributes are absent.
 Optional approval_modes (id/label pairs), approval_mode and set_approval_mode
 expose native per-tab approval choices without persisting Codex preferences.
+ACP permission_policy(tool, current_attached_paths, active_mode) optionally injects
+a product-specific, narrowly scoped allow-once exception; summaries never inherit it.
 supports_auto_review=False keeps the legacy approval selector at manual review without
 changing the saved Codex preference. supports_file_references=True opts into the
 optional send(files=[absolute_paths]) argument, leaving legacy send calls intact.

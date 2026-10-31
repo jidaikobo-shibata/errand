@@ -45,7 +45,7 @@ class AIServices(CodexServices):
     def conversation(self, emit, *, dispatch, codex, command):
         if self.settings.get('ai-provider') == 'gemini-cli':
             from chat_foundation.acp.session import Session as ACPSession
-            from .gemini_cli import Launcher, file_uri
+            from .gemini_cli import Launcher, file_uri, approve_attached_read
             launch = Launcher(executable=self.settings.get('gemini-cli-path'),
                               credentials_path=self.settings.get('gemini-env-path') or None,
                               mcp_config=self.settings.get('gemini-mcp-config'), client_info=self.product.client_info())
@@ -53,7 +53,7 @@ class AIServices(CodexServices):
                               instructions=self.product.instructions + self.product.gemini_cli_instructions,
                               summary_instructions=self.product.summary_instructions,
                               assistant_name='Gemini', default_model='gemini-3.5-flash-lite',
-                              file_uri=file_uri, required_mode='default',
+                              file_uri=file_uri, required_mode='default', permission_policy=approve_attached_read,
                               approval_modes=(('default', '自分で承認'), ('autoEdit', '編集を自動承認'),
                                               ('yolo', '全操作を自動承認（YOLO）')), notice=(
                                   'Gemini：ファイル操作・コマンド実行に対応します。承認方法はこのタブだけに適用します。'

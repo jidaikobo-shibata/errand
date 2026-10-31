@@ -34,6 +34,16 @@ def file_uri(path):
     return 'file://' + str(path)
 
 
+def approve_attached_read(tool, attached_paths, mode):
+    """CLI 0.66 requests this separately from its tool approval mode."""
+    if mode not in ('autoEdit', 'yolo') or tool.get('kind') != 'read':
+        return False
+    call_id = tool.get('toolCallId', '')
+    return (isinstance(call_id, str) and call_id.startswith('resolve-prompt-')
+            and any(tool.get('title') == 'Allow access to absolute path: ' + path
+                    for path in attached_paths))
+
+
 class Launcher:
     def __init__(self, *, executable='', credentials_path=None, mcp_config='', model='gemini-3.5-flash-lite', client_info=None):
         self.executable, self.credentials_path = executable, credentials_path

@@ -9,7 +9,7 @@ import threading
 import time
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from errand.gemini_cli import Launcher, file_uri
+from errand.gemini_cli import Launcher, file_uri, approve_attached_read
 from chat_foundation.acp.session import Session
 with tempfile.TemporaryDirectory(prefix='errand-native-local-') as directory:
     root = Path(directory)
@@ -51,6 +51,7 @@ return orig.apply(this,args);};''')
     session = Session(lambda k, d: events.append((k, d)), launch=launch, instructions='offline fixture',
                       summary_instructions='summary', assistant_name='Gemini', required_mode='default',
                       default_model='gemini-3.5-flash-lite', file_uri=file_uri,
+                      permission_policy=approve_attached_read,
                       approval_modes=(('default', 'Manual'), ('autoEdit', 'Edit'), ('yolo', 'All')))
     def until(test):
         deadline = time.monotonic() + 20
@@ -129,6 +130,17 @@ return orig.apply(this,args);};''')
         session.answer(request['request_id'], {'cancel': True})
         until(lambda: not session.busy)
         print('PASS: switching back to default restores edit approval')
+        for mode in ('autoEdit', 'yolo'):
+            session.set_approval_mode(mode)
+            events.clear()
+            attached = root / ('添付 % ' + mode + '.txt')
+            attached.write_text('offline attachment')
+            session.send('添付ファイルを読んでください。', files=[str(attached)])
+            until(lambda: not session.busy or bool(session._requests))
+            assert not session._requests, events
+            assert events[-1][1]['status'] == 'completed', events
+            assert any(k == 'progress' and 'Allow access' in d['item']['command'] for k, d in events)
+            print('PASS: outside-workspace attachment auto-approved in', mode)
         print('Prompt status:', events[-1][1].get('status'), 'Local API calls:', len(calls))
     finally:
         session.close()

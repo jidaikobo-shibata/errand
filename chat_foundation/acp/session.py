@@ -18,7 +18,7 @@ class Session:
 
     def __init__(self, emit, *, dispatch=lambda fn: fn(), launch, instructions, summary_instructions,
                  assistant_name='AI', notice='', default_model=None, process_factory=JsonRpcProcess,
-                 file_uri=None, required_mode=None, approval_modes=()):
+                 file_uri=None, required_mode=None, approval_modes=(), permission_policy=None):
         self.emit, self.dispatch = emit, dispatch
         self.launch = launch
         self.instructions, self.summary_instructions = instructions, summary_instructions
@@ -26,6 +26,8 @@ class Session:
         self.default_model = default_model
         self.file_uri = file_uri or (lambda path: path.as_uri())
         self.required_mode = required_mode
+        self.permission_policy = permission_policy
+        self._attached_paths = ()
         self.approval_modes = tuple(approval_modes)
         self.approval_mode = required_mode
         self._active_mode = None
@@ -187,6 +189,7 @@ class Session:
             if not any(entry['model'] == model for entry in self._models) or effort is not None:
                 raise RpcError('利用可能なモデルを選んでください。')
             self._busy = True
+            self._attached_paths = tuple(paths)
             self._interrupt_requested = False
             self._text = ''
             self._item_id = uuid.uuid4().hex
@@ -301,6 +304,17 @@ class Session:
                 return
             tool = params.get('toolCall') or {}
             details = {**self._tools.get(tool.get('toolCallId'), {}), **tool}
+            # Product-specific exceptions must identify the exact request and current input.
+            # Never bypass arbitrary CLI permission requests just because the mode is YOLO.
+            if self.permission_policy and self.permission_policy(
+                    details, self._attached_paths, self._active_mode):
+                option = next(option for option in options if option['kind'] == 'allow_once')
+                server.respond(message['id'], {'outcome': {
+                    'outcome': 'selected', 'optionId': option['optionId']}})
+                self._emit('progress', generation, item={
+                    'type': 'read', 'command': details.get('title', '添付ファイルの読み取り'),
+                    'details': details}, completed=True)
+                return
             self._requests[message['id']] = options
             self._emit('request', generation, request_id=message['id'], method='agent/permission', params={
                 'reason': details.get('title', 'この操作を今回だけ許可しますか？'),

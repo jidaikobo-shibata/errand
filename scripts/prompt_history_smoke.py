@@ -9,6 +9,7 @@ from smoke_support import foreground_on_activate, input_ready, wait_for
 root = Path(__file__).resolve().parent.parent
 app = Application(isolated=True, command=[sys.executable, str(root / 'tests/fake_server.py')])
 failures = []
+logic_only = "--logic-only" in sys.argv
 foreground_on_activate(app)
 
 
@@ -18,11 +19,14 @@ def verify(_):
         buffer = view.input.get_buffer()
         keys = app.window.key_controller
         def press(key):
+            if logic_only:
+                return view.recall_prompt(-1 if key == Gdk.KEY_Up else 1)
             return keys.emit('key-pressed', key, 0, Gdk.ModifierType(0))
         def text():
             return buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
         view.input.grab_focus()
-        assert view.input.has_focus()
+        if not logic_only:
+            assert view.input.has_focus()
         assert not press(Gdk.KEY_Up)
         for draft in ('最初のお願い\n二行目', '次のお願い'):
             buffer.set_text(draft)
@@ -58,14 +62,16 @@ def verify(_):
         assert view.prompt_history
         view.event('reset', {})
         assert not view.prompt_history
-        print('PASS: accepted prompt history, multiline recall, empty return, editing, draft preservation and tab isolation')
+        print('PASS: accepted prompt history, multiline recall, empty return, editing, draft preservation and tab isolation'
+              + (' (logic only; physical focus not checked)' if logic_only else ''))
     except Exception as exc:
         failures.append(exc)
     finally:
         app.quit()
 
 
-app.connect('activate', lambda _: wait_for(app, lambda: input_ready(app),
+app.connect('activate', lambda _: wait_for(app, lambda: (app.window.current.input.get_mapped()
+                                                       if logic_only else input_ready(app)),
                                          lambda: verify(app), failures, 'prompt history editor focus'))
 app.run([])
 if failures:

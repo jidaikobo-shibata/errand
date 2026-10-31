@@ -9,6 +9,35 @@ from errand.gemini_cli import Launcher
 
 
 class SecretTests(unittest.TestCase):
+    def test_generated_workspace_files_do_not_follow_links(self):
+        from errand.gemini_cli import prepare_work
+        for link_type in ('symlink', 'hardlink'):
+            with self.subTest(link_type=link_type), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                work = root / 'work'
+                work.mkdir()
+                target = root / 'outside.txt'
+                target.write_text('must survive')
+                for name in ('.env', 'GEMINI.md'):
+                    path = work / name
+                    if link_type == 'symlink':
+                        path.symlink_to(target)
+                    else:
+                        path.hardlink_to(target)
+                prepare_work(root, 'instructions')
+                self.assertEqual(target.read_text(), 'must survive')
+                self.assertEqual((work / '.env').read_text(), '')
+                self.assertEqual((work / 'GEMINI.md').read_text(), 'instructions')
+                self.assertFalse((work / '.env').is_symlink())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outside = root / 'outside'
+            outside.mkdir()
+            (root / 'work').symlink_to(outside)
+            with self.assertRaises(OSError):
+                prepare_work(root, 'instructions')
+            self.assertFalse(list(outside.iterdir()))
+
     def test_isolated_store_never_opens_os_store(self):
         store = SecretStore('test', isolated=True)
         with patch.object(store, '_backend', side_effect=AssertionError('OS touched')):

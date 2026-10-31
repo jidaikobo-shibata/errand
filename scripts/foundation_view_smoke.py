@@ -17,7 +17,7 @@ failures = []
 def run(_):
     view = None
     window = Gtk.ApplicationWindow(application=app)
-    session = Mock(busy=False, approvals_reviewer='user')
+    session = Mock(busy=False, approvals_reviewer='user', approval_modes=(), startup_message=None)
     login = Mock()
     runtime = Mock(active=False)
     settings = Mock()

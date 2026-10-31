@@ -49,6 +49,38 @@ def is_mode_notice(text, requested_mode):
     return text == '[MODE_UPDATE] ' + requested_mode
 
 
+def prepare_work(root, instructions):
+    """Anchor generated files to real directories and replace entries atomically."""
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    root_fd = os.open(root, directory_flags)
+    try:
+        try:
+            os.mkdir('work', mode=0o700, dir_fd=root_fd)
+        except FileExistsError:
+            pass
+        work_fd = os.open('work', directory_flags, dir_fd=root_fd)
+        try:
+            for name, text in (('.env', ''), ('GEMINI.md', instructions)):
+                temporary = '.errand-' + uuid.uuid4().hex
+                descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                     0o600, dir_fd=work_fd)
+                try:
+                    with os.fdopen(descriptor, 'w') as output:
+                        output.write(text)
+                    # Rename replaces the directory entry, never a symlink/hardlink target.
+                    os.replace(temporary, name, src_dir_fd=work_fd, dst_dir_fd=work_fd)
+                finally:
+                    try:
+                        os.unlink(temporary, dir_fd=work_fd)
+                    except FileNotFoundError:
+                        pass
+        finally:
+            os.close(work_fd)
+    finally:
+        os.close(root_fd)
+    return root / 'work'
+
+
 class Launcher:
     def __init__(self, *, executable='', credentials_path=None, mcp_config='', model='gemini-3.5-flash-lite', client_info=None, key_provider=None):
         self.executable, self.credentials_path = executable, credentials_path
@@ -67,11 +99,9 @@ class Launcher:
         if key is None:
             key = read_api_key(self.credentials_path or Path.home() / '.gemini/.env')
         root = Path(directory)
-        work = root / 'work'
-        work.mkdir(mode=0o700, exist_ok=True)
+        work = prepare_work(root, instructions)
         # Stop CLI dotenv discovery at the private workspace, including parent /tmp.
         # --ignore-env alone does not ignore trusted .gemini/.env ancestors.
-        (work / '.env').write_text('')
         # A fresh CLI home prevents inherited permanent grants, hooks and persistent history.
         home = root / ('runtime-' + uuid.uuid4().hex)
         config = home / '.gemini'
@@ -99,7 +129,6 @@ class Launcher:
                 raise ValueError('指定したGemini CLIのMCP設定を読み込めませんでした。') from None
         (config / 'settings.json').write_text(json.dumps(settings))
         (home / 'empty.json').write_text('{}')
-        (work / 'GEMINI.md').write_text(instructions)
         env = {name: value for name, value in os.environ.items()
                if name in ('PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'HOME', 'TMPDIR',
                            'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',

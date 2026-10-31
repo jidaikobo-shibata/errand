@@ -13,6 +13,36 @@ from chat_foundation.codex.session import Session as SharedSession
 ROOT = Path(__file__).resolve().parent.parent
 
 class SessionTests(unittest.TestCase):
+    def test_delayed_interrupt_does_not_cancel_the_next_submission(self):
+        entered, release, done = threading.Event(), threading.Event(), threading.Event()
+        original = self.session._interrupt
+        def delayed(generation, submission_id):
+            entered.set()
+            release.wait(4)
+            original(generation, submission_id)
+            done.set()
+        self.session._interrupt = delayed
+        self.addCleanup(release.set)
+        def until(test):
+            deadline = time.monotonic() + 4
+            while not test():
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(.005)
+        self.session.send('short')
+        until(lambda: self.session._turn_id is not None)
+        self.session.interrupt()
+        until(entered.is_set)
+        until(lambda: not self.session.busy)
+        self.session.send('wait')
+        until(lambda: self.session._turn_id is not None)
+        release.set()
+        until(done.is_set)
+        self.assertTrue(self.session.busy)
+        self.assertFalse(self.session._interrupt_requested)
+        self.session._interrupt = original
+        self.session.interrupt()
+        until(lambda: not self.session.busy)
+
     def confirmation(self, request_id='confirm', **changes):
         return {'id': request_id, 'method': 'mcpServer/elicitation/request', 'params': {
             'mode': 'form', 'serverName': 'browser', 'message': 'Allow browser_click?',

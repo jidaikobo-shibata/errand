@@ -38,6 +38,7 @@ class Session:
         self._server = None
         self._thread_id = None
         self._turn_id = None
+        self._submission_id = 0
         self._busy = False
         self._interrupt_requested = False
         self._model = None
@@ -179,13 +180,15 @@ class Session:
                 raise RpcError("選択したモデルは、その推論の強さに対応していません。")
         elif effort is not None:
             raise RpcError("推論の強さを指定する場合はモデルを選んでください。")
-        self._model, self._effort = model, effort
-        self._busy = True
-        self._interrupt_requested = False
+        with self._lock:
+            self._submission_id += 1
+            self._model, self._effort = model, effort
+            self._busy = True
+            self._interrupt_requested = False
         self._emit("user", text=text, started_at=time.monotonic())
         self._emit("state", busy=True, message="Codexに接続しています…")
         generation = self._generation
-        self._pool.submit(self._send, generation, text)
+        self._pool.submit(self._send, generation, text, self._submission_id)
 
     def set_approval_reviewer(self, reviewer):
         if self._busy:
@@ -197,7 +200,8 @@ class Session:
     def _current(self, generation):
         return not self._closed and generation == self._generation
 
-    def _send(self, generation, text):
+    def _send(self, generation, text, submission_id=None):
+        submission_id = self._submission_id if submission_id is None else submission_id
         try:
             if not self._server:
                 command = self._server_command()
@@ -254,15 +258,19 @@ class Session:
             result = self._server.request("turn/start", params).result(timeout=60)
             if not self._current(generation):
                 return
-            turn = result.get("turn", {})
-            self._emit("submitted", text=text)
-            if turn.get("status") in {"completed", "failed", "interrupted"}:
-                self._busy = False
-            elif self._busy:
-                self._turn_id = turn["id"]
-                self._emit("state", busy=True, message="実行中…")
-                if self._interrupt_requested:
-                    self._interrupt(generation)
+            with self._lock:
+                if not self._current(generation) or submission_id != self._submission_id:
+                    return
+                turn = result.get("turn", {})
+                self._emit("submitted", text=text)
+                if turn.get("status") in {"completed", "failed", "interrupted"}:
+                    self._busy = False
+                elif self._busy:
+                    self._turn_id = turn["id"]
+                    self._emit("state", busy=True, message="実行中…")
+                interrupt = self._busy and self._interrupt_requested
+            if interrupt:
+                self._interrupt(generation, submission_id)
         except Exception as error:
             if self._current(generation):
                 with self._lock:
@@ -280,44 +288,45 @@ class Session:
                 self._emit("state", busy=False, message="接続を破棄しました。次の送信で新しい会話として再接続します。")
 
     def _event(self, generation, message):
-        if not self._current(generation):
-            return
-        method, params = message.get("method"), message.get("params", {})
-        if params.get("threadId") and self._thread_id and params["threadId"] != self._thread_id:
-            return
-        if method == "turn/started":
-            self._turn_id = params["turn"]["id"]
-            if self._interrupt_requested:
-                self._pool.submit(self._interrupt, generation)
-        elif method == "item/agentMessage/delta":
-            self._emit("delta", item_id=params["itemId"], text=params.get("delta", ""))
-        elif method in {"item/started", "item/completed"}:
-            item = params.get("item", {})
-            item_id = item.get("id", "")
-            self._items[item_id] = item
-            if item.get("type") == "agentMessage" and method == "item/completed":
-                self._emit("assistant", item_id=item_id, text=item.get("text", ""))
-            elif item.get("type") in {"commandExecution", "fileChange", "mcpToolCall", "webSearch"}:
-                self._emit("progress", item=item, completed=method == "item/completed")
-        elif method == "item/commandExecution/outputDelta":
-            self._emit("output", item_id=params.get("itemId", ""), text=params.get("delta", ""))
-        elif method == "turn/completed":
-            turn = params.get("turn", {})
-            self._busy = False
-            self._turn_id = None
-            self._requests.clear()
-            self._emit("requests_clear")
-            status = turn.get("status", "completed")
-            messages = {"completed": "入力を待っています。", "interrupted": "中断しました。", "failed": "作業に失敗しました。"}
-            if turn.get("error"):
-                self._emit("error", message=turn["error"].get("message", str(turn["error"])))
-            self._emit("state", busy=False, message=messages.get(status, status), status=status)
-        elif method == "serverRequest/resolved":
-            self._requests.pop(params.get("requestId"), None)
-            self._emit("request_resolved", request_id=params.get("requestId"))
-        elif method == "error":
-            error = params.get("error", {})
-            self._emit("error", message=error.get("message", str(error)))
+        with self._lock:
+            if not self._current(generation):
+                return
+            method, params = message.get("method"), message.get("params", {})
+            if params.get("threadId") and self._thread_id and params["threadId"] != self._thread_id:
+                return
+            if method == "turn/started":
+                self._turn_id = params["turn"]["id"]
+                if self._interrupt_requested:
+                    self._pool.submit(self._interrupt, generation, self._submission_id)
+            elif method == "item/agentMessage/delta":
+                self._emit("delta", item_id=params["itemId"], text=params.get("delta", ""))
+            elif method in {"item/started", "item/completed"}:
+                item = params.get("item", {})
+                item_id = item.get("id", "")
+                self._items[item_id] = item
+                if item.get("type") == "agentMessage" and method == "item/completed":
+                    self._emit("assistant", item_id=item_id, text=item.get("text", ""))
+                elif item.get("type") in {"commandExecution", "fileChange", "mcpToolCall", "webSearch"}:
+                    self._emit("progress", item=item, completed=method == "item/completed")
+            elif method == "item/commandExecution/outputDelta":
+                self._emit("output", item_id=params.get("itemId", ""), text=params.get("delta", ""))
+            elif method == "turn/completed":
+                turn = params.get("turn", {})
+                self._busy = False
+                self._turn_id = None
+                self._requests.clear()
+                self._emit("requests_clear")
+                status = turn.get("status", "completed")
+                messages = {"completed": "入力を待っています。", "interrupted": "中断しました。", "failed": "作業に失敗しました。"}
+                if turn.get("error"):
+                    self._emit("error", message=turn["error"].get("message", str(turn["error"])))
+                self._emit("state", busy=False, message=messages.get(status, status), status=status)
+            elif method == "serverRequest/resolved":
+                self._requests.pop(params.get("requestId"), None)
+                self._emit("request_resolved", request_id=params.get("requestId"))
+            elif method == "error":
+                error = params.get("error", {})
+                self._emit("error", message=error.get("message", str(error)))
 
     def _request(self, generation, message):
         if not self._current(generation):
@@ -371,21 +380,28 @@ class Session:
         if self._summary:
             self._summary.interrupt()
             return
-        if not self._busy:
-            return
-        self._interrupt_requested = True
+        with self._lock:
+            if not self._busy:
+                return
+            self._interrupt_requested = True
+            generation, submission_id = self._generation, self._submission_id
         self._emit("state", busy=True, message="中断しています…")
-        self._pool.submit(self._interrupt, self._generation)
+        self._pool.submit(self._interrupt, generation, submission_id)
 
-    def _interrupt(self, generation):
-        if self._current(generation) and self._server and self._turn_id:
-            try:
-                self._server.request("turn/interrupt", {
+    def _interrupt(self, generation, submission_id):
+        try:
+            with self._lock:
+                if (not self._current(generation) or submission_id != self._submission_id
+                        or not self._busy or not self._interrupt_requested
+                        or not self._server or not self._turn_id):
+                    return
+                future = self._server.request("turn/interrupt", {
                     "threadId": self._thread_id, "turnId": self._turn_id,
-                }).result(timeout=10)
-            except Exception as error:
-                if self._current(generation):
-                    self._emit("error", message=f"中断に失敗しました: {error}")
+                })
+            future.result(timeout=10)
+        except Exception as error:
+            if self._current(generation) and submission_id == self._submission_id:
+                self._emit("error", message=f"中断に失敗しました: {error}")
 
     def _disconnected(self, generation, error):
         with self._lock:

@@ -318,3 +318,16 @@ env GSETTINGS_BACKEND=memory python3 scripts/shortcuts_smoke.py
 GNOMEではGSettingsを共有し、macOSでは利用者のApplication Support内に設定を保存します。
 設定ファイルとCodexのパスはローカル情報なので、リポジトリや配布物へ含めないでください。
 新しいスキーマを追加した場合はビルド時にコンパイルし、拡張の設定画面を開き直してください。
+
+### 終了・中断・初期化の回帰検証
+
+`tests/test_acp.py`は別Pythonプロセスを終了させ、SIGTERMを無視する子プロセスまで
+停止することをLinuxの/procで確認します。GUIのclose(wait=False)を通る経路でも、
+クリーンアップは非daemonスレッドとし、終了前にプロセス群を停止します。
+`tests/test_session.py`は遅延した中断を次のCodex依頼へ適用しないことを検証します。
+`tests/test_secret_store.py`は初期化対象のシンボリックリンク・ハードリンクで領域外を
+変更せず、作業ディレクトリ自体のリンクは拒否することを確認します。
+
+入力履歴の実フォーカスを必要としない検証は`prompt_history_smoke.py --logic-only`で実行できます。
+これは履歴の遷移・下書き保持の検証であり、実フォーカスやキー入力の成功を意味しません。
+フラグなしの検証は引き続きウィンドウのアクティブ状態と入力フォーカスを確認します。

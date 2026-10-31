@@ -414,7 +414,7 @@ class Session:
             old, self._server = self._server, None
             self._session_id = None
             self._generation += 1
-        threading.Thread(target=old.close, daemon=True).start()
+        self._background_cleanup(old.close)
         self._emit('error', message=f'{self.assistant_name}との接続が切れました。次の送信で新しい会話を開始します。')
         self._emit('state', busy=False, message='再接続を待っています。', status='failed')
 
@@ -428,7 +428,7 @@ class Session:
             old, self._server = self._server, None
             self._session_id = None
         if old:
-            threading.Thread(target=old.close, daemon=True).start()
+            self._background_cleanup(old.close)
         self._emit('reset')
 
     def summarize(self, conversation, model=None, effort=None):
@@ -477,6 +477,13 @@ class Session:
             self._emit('state', busy=False, message='要約を開始できませんでした。')
             raise
 
+    @staticmethod
+    def _background_cleanup(callback):
+        # Keep interpreter shutdown waiting for process-group termination and cleanup.
+        thread = threading.Thread(target=callback, name='acp-cleanup', daemon=False)
+        thread.start()
+        return thread
+
     def close(self, wait=True):
         with self._lock:
             if self._closed:
@@ -496,5 +503,5 @@ class Session:
         if wait:
             cleanup()
         else:
-            threading.Thread(target=cleanup, daemon=True).start()
+            self._background_cleanup(cleanup)
         self._pool.shutdown(wait=False, cancel_futures=True)

@@ -1,6 +1,7 @@
 """Deterministic wire peer; tests exercise the actual subprocess transport."""
 import json
 import sys
+import threading
 
 turn = 0
 pending = None
@@ -99,6 +100,8 @@ for line in sys.stdin:
         elif text == "unknown":
             pending = "unknown"
             send({"id": "unknown-1", "method": "unknown/request", "params": {}})
+        elif text == "short":
+            threading.Timer(.15, complete).start()
         elif text == "wait":
             pass
         elif text == "exit":

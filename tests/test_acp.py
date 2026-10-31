@@ -1,5 +1,6 @@
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -36,6 +37,44 @@ class ACPTests(unittest.TestCase):
             if time.monotonic() > deadline:
                 self.fail('ACP operation timed out')
             time.sleep(.005)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux /proc process-liveness check')
+    def test_async_close_completes_before_interpreter_exits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pid_file = root / 'child.pid'
+            agent = root / 'agent.py'
+            agent.write_text(
+                "import subprocess,sys\n"
+                "child=subprocess.Popen([sys.executable,'-c',"
+                "'import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);print(1,flush=True);time.sleep(60)'],stdout=subprocess.PIPE)\n"
+                "child.stdout.readline()\n"
+                "from pathlib import Path\n"
+                "Path(sys.argv[1]).write_text(str(child.pid))\n" +
+                Path(__file__).with_name('fake_acp_server.py').read_text())
+            runner = root / 'runner.py'
+            runner.write_text(
+                'import sys,os,time\n'
+                f'sys.path.insert(0,{str(Path(__file__).resolve().parents[1])!r})\n'
+                'from chat_foundation.acp.session import Session\n'
+                's=Session(lambda *_:None,instructions="",summary_instructions="",'
+                f'launch=lambda d,i:dict(command=[sys.executable,{str(agent)!r},{str(pid_file)!r}],'
+                'cwd=d,environment={"PATH":os.environ["PATH"]}))\n'
+                's.load_models()\n'
+                'while s._loading_models: time.sleep(.005)\n'
+                'assert s._models\n'
+                's.close(wait=False)\n')
+            try:
+                result = subprocess.run([sys.executable, str(runner)], capture_output=True, timeout=8)
+                self.assertEqual(result.returncode, 0, result.stderr.decode())
+                stat = Path('/proc') / pid_file.read_text() / 'stat'
+                self.assertTrue(not stat.exists() or stat.read_text().split(') ', 1)[1].startswith('Z'))
+            finally:
+                if pid_file.exists():
+                    try:
+                        os.kill(int(pid_file.read_text()), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
 
     def test_delayed_interrupt_cannot_cancel_the_next_turn(self):
         session, events, _ = self.make_session()

@@ -30,6 +30,8 @@ def verify(_):
         original.input.get_buffer().set_text('Codexの下書き')
         app.settings.set_approval_reviewer('auto_review')
         app.open_preferences()
+        assert app.preferences.path.get_placeholder_text() == '空欄なら自動で検索します'
+        assert app.preferences.gemini_path.get_placeholder_text() == app.preferences.path.get_placeholder_text()
         assert app.preferences.provider.get_model().get_n_items() == 2
         assert app.preferences.provider.get_model().get_string(1) == 'Gemini'
         app.preferences.provider.set_selected(1)

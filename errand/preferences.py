@@ -68,24 +68,27 @@ class Preferences(Adw.PreferencesWindow):
             'Codex', 'Gemini']))
         self.provider.set_selected(self.provider_ids.index(app.settings.get('ai-provider')))
         ai.add(self.provider)
-        self.gemini_env = Adw.EntryRow(title='Geminiのキー設定ファイルの絶対パス')
-        self.gemini_env.set_text(app.settings.get('gemini-env-path'))
-        ai.add(self.gemini_env)
-        self.gemini_path = Adw.EntryRow(title='Gemini CLI実行ファイルの絶対パス（空欄で自動検索）')
-        self.gemini_path.set_text(app.settings.get('gemini-cli-path'))
-        ai.add(self.gemini_path)
-        self.gemini_mcp = Adw.EntryRow(title='Gemini CLIのMCP設定ファイル（任意）')
-        self.gemini_mcp.set_text(app.settings.get('gemini-mcp-config'))
+        page.add(ai)
+        gemini = Adw.PreferencesGroup(title='Gemini')
+        self.gemini_env = self.add_path_entry(
+            gemini, 'APIキー設定ファイルの絶対パス', app.settings.get('gemini-env-path'),
+            '空欄なら既定のキー設定ファイルを使用')
+        self.gemini_env.set_tooltip_text('GEMINI_API_KEY環境変数を優先し、未設定なら指定ファイルを読み込みます。')
+        self.gemini_path = self.add_path_entry(
+            gemini, 'Gemini CLI実行ファイルの絶対パス', app.settings.get('gemini-cli-path'),
+            '空欄なら自動で検索します')
+        self.gemini_mcp = self.add_path_entry(
+            gemini, 'MCP設定ファイルの絶対パス', app.settings.get('gemini-mcp-config'),
+            '任意：MCPを使う場合に指定')
         self.gemini_mcp.set_tooltip_text('指定した設定のMCP接続を新しいタブで利用します。認証や承認設定は取り込みません。')
-        ai.add(self.gemini_mcp)
-        ai.add(Adw.ActionRow(title='Gemini APIの利用条件', subtitle=(
+        gemini.add(Adw.ActionRow(title='APIの利用条件', subtitle=(
             'GEMINI_API_KEYを読み込みます。キーはErrandに保存しません。'
             '無料枠・料金・データ利用条件はGoogle AI Studioで確認してください。')))
-        page.add(ai)
-        codex = Adw.PreferencesGroup(title='Codex', description='変更は新しいタブから適用します。空欄なら自動で検索します。')
-        self.path = Adw.EntryRow(title='実行ファイルの絶対パス')
-        self.path.set_text(app.codex or '')
-        codex.add(self.path)
+        page.add(gemini)
+        codex = Adw.PreferencesGroup(title='Codex')
+        self.path = self.add_path_entry(
+            codex, '実行ファイルの絶対パス', app.settings.get('codex-path'),
+            '空欄なら自動で検索します')
         page.add(codex)
         self.shortcut_value = app.settings.get('open-errand')
         self.shortcut_overrides = app.settings.get('shortcuts')
@@ -168,6 +171,26 @@ class Preferences(Adw.PreferencesWindow):
         else:
             self.shortcut_overrides.pop(action, None)
             self.shortcut_rows[action].set_subtitle(self.row_label(action))
+
+    @staticmethod
+    def add_path_entry(group, title, value, placeholder):
+        # EntryRow uses its title as a floating placeholder and has no separate
+        # placeholder property. Keep a persistent label and a real Gtk.Entry.
+        row = Adw.PreferencesRow(title=title)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
+                      margin_start=12, margin_end=12, margin_top=8, margin_bottom=8)
+        caption = Gtk.Label(label=title, xalign=0, wrap=True)
+        caption.add_css_class('caption')
+        caption.add_css_class('dim-label')
+        entry = Gtk.Entry(text=value, placeholder_text=placeholder, has_frame=False,
+                          hexpand=True)
+        entry.update_property([Gtk.AccessibleProperty.LABEL], [title])
+        caption.set_mnemonic_widget(entry)
+        box.append(caption)
+        box.append(entry)
+        row.set_child(box)
+        group.add(row)
+        return entry
 
     def save(self, *_):
         try:

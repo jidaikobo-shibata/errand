@@ -1,7 +1,8 @@
 """Application preferences shared by desktop launchers."""
 from pathlib import Path
 import sys
-from gi.repository import Adw, Gdk, Gio, Gtk
+import threading
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .settings import Settings
 from .product import ERRAND
@@ -70,19 +71,42 @@ class Preferences(Adw.PreferencesWindow):
         ai.add(self.provider)
         page.add(ai)
         gemini = Adw.PreferencesGroup(title='Gemini')
+        from .secret_store import SecretStore
+        self.credential_store = getattr(app.services, 'credential_store', None) or SecretStore(
+            app.product.application_id, isolated=app.settings.isolated)
+        self._key_closed = self._key_busy = False
+        self._key_saved = False
+        self.key_entry = Adw.PasswordEntryRow(title='APIキー')
+        self.key_entry.set_tooltip_text('Google AI Studioで発行したキーを貼り付けて、キーを保存を押してください。')
+        gemini.add(self.key_entry)
+        self.key_status = Adw.ActionRow(title='OSの保管庫', subtitle='保存状態を確認中…')
+        self.key_save = Gtk.Button(label='キーを保存', valign=Gtk.Align.CENTER)
+        self.key_delete = Gtk.Button(label='削除', valign=Gtk.Align.CENTER)
+        self.key_delete.set_tooltip_text('ErrandがOSの保管庫に保存したキーだけを削除します。既存の環境変数やキー設定ファイルは変更しません。')
+        self.key_save.add_css_class('suggested-action')
+        self.key_save.connect('clicked', lambda _: self.key_action('save'))
+        self.key_delete.connect('clicked', lambda _: self.key_action('delete'))
+        self.key_entry.connect('changed', lambda _: self.update_key_controls())
+        self.key_status.add_suffix(self.key_save)
+        self.key_status.add_suffix(self.key_delete)
+        gemini.add(self.key_status)
+        self.connect('close-request', self.key_closed)
+        self.key_action('status')
+        advanced = Adw.ExpanderRow(title='詳細設定', subtitle='既存のキー設定ファイル・CLI・MCP')
+        gemini.add(advanced)
         self.gemini_env = self.add_path_entry(
-            gemini, 'APIキー設定ファイルの絶対パス', app.settings.get('gemini-env-path'),
+            advanced, 'APIキー設定ファイルの絶対パス', app.settings.get('gemini-env-path'),
             '空欄なら既定のキー設定ファイルを使用')
-        self.gemini_env.set_tooltip_text('GEMINI_API_KEY環境変数を優先し、未設定なら指定ファイルを読み込みます。')
+        self.gemini_env.set_tooltip_text('OSの保管庫にキーがない場合、GEMINI_API_KEY環境変数、指定ファイルの順で読み込みます。')
         self.gemini_path = self.add_path_entry(
-            gemini, 'Gemini CLI実行ファイルの絶対パス', app.settings.get('gemini-cli-path'),
+            advanced, 'Gemini CLI実行ファイルの絶対パス', app.settings.get('gemini-cli-path'),
             '空欄なら自動で検索します')
         self.gemini_mcp = self.add_path_entry(
-            gemini, 'MCP設定ファイルの絶対パス', app.settings.get('gemini-mcp-config'),
+            advanced, 'MCP設定ファイルの絶対パス', app.settings.get('gemini-mcp-config'),
             '任意：MCPを使う場合に指定')
         self.gemini_mcp.set_tooltip_text('指定した設定のMCP接続を新しいタブで利用します。認証や承認設定は取り込みません。')
         gemini.add(Adw.ActionRow(title='APIの利用条件', subtitle=(
-            'GEMINI_API_KEYを読み込みます。キーはErrandに保存しません。'
+            'キーはOSの保管庫に保存します。設定ファイルには保存しません。'
             '無料枠・料金・データ利用条件はGoogle AI Studioで確認してください。')))
         page.add(gemini)
         codex = Adw.PreferencesGroup(title='Codex')
@@ -172,6 +196,55 @@ class Preferences(Adw.PreferencesWindow):
             self.shortcut_overrides.pop(action, None)
             self.shortcut_rows[action].set_subtitle(self.row_label(action))
 
+    def key_closed(self, *_):
+        self._key_closed = True
+        self.key_entry.set_text('')
+        return False
+
+    def update_key_controls(self):
+        self.key_save.set_sensitive(not self._key_busy and bool(self.key_entry.get_text().strip()))
+        self.key_delete.set_sensitive(not self._key_busy and self._key_saved)
+        self.key_entry.set_sensitive(not self._key_busy)
+
+    def key_action(self, action):
+        if self._key_busy or self._key_closed:
+            return
+        key = self.key_entry.get_text() if action == 'save' else None
+        self._key_busy = True
+        self.key_status.set_subtitle('OSの保管庫にアクセスしています…')
+        self.update_key_controls()
+
+        def work():
+            try:
+                if action == 'save':
+                    self.credential_store.save(key)
+                    saved = True
+                elif action == 'delete':
+                    self.credential_store.delete()
+                    saved = False
+                else:
+                    saved = self.credential_store.load() is not None
+                error = None
+            except Exception:
+                saved = self._key_saved
+                error = '保管庫を利用できませんでした。ロック状態やOSのアクセス許可を確認してください。平文では保存しません。'
+            GLib.idle_add(finish, saved, error)
+
+        def finish(saved, error):
+            if self._key_closed:
+                return False
+            self._key_busy = False
+            self._key_saved = saved
+            if not error:
+                self.key_entry.set_text('')
+            self.key_status.set_subtitle(error or (
+                '保存済み。変更する場合は新しいキーを入力してください。' if saved else
+                '未保存。APIキーを入力して「キーを保存」を押してください。'))
+            self.update_key_controls()
+            return False
+
+        threading.Thread(target=work, daemon=True, name='credential-store').start()
+
     @staticmethod
     def add_path_entry(group, title, value, placeholder):
         # EntryRow uses its title as a floating placeholder and has no separate
@@ -189,7 +262,10 @@ class Preferences(Adw.PreferencesWindow):
         box.append(caption)
         box.append(entry)
         row.set_child(box)
-        group.add(row)
+        if isinstance(group, Adw.ExpanderRow):
+            group.add_row(row)
+        else:
+            group.add(row)
         return entry
 
     def save(self, *_):

@@ -34,6 +34,23 @@ def verify(_):
         assert app.preferences.gemini_path.get_placeholder_text() == app.preferences.path.get_placeholder_text()
         assert app.preferences.provider.get_model().get_n_items() == 2
         assert app.preferences.provider.get_model().get_string(1) == 'Gemini'
+        until(lambda: not app.preferences._key_busy)
+        prefs = app.preferences
+        assert not prefs._key_saved
+        prefs.key_entry.set_text('synthetic-gui-key')
+        prefs.key_save.emit('clicked')
+        until(lambda: not prefs._key_busy)
+        assert prefs._key_saved and prefs.key_entry.get_text() == ''
+        assert app.services.credential_store.load() == 'synthetic-gui-key'
+        assert 'synthetic-gui-key' not in repr(app.settings.values)
+        prefs.key_entry.set_text('replacement-gui-key')
+        prefs.key_save.emit('clicked')
+        until(lambda: not prefs._key_busy)
+        assert app.services.credential_store.load() == 'replacement-gui-key'
+        prefs.key_delete.emit('clicked')
+        until(lambda: not prefs._key_busy)
+        assert not prefs._key_saved
+        assert app.services.credential_store.load() is None
         app.preferences.provider.set_selected(1)
         app.preferences.save()
         assert app.settings.get('ai-provider') == 'gemini-cli'

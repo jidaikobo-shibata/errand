@@ -45,17 +45,28 @@ def approve_attached_read(tool, attached_paths, mode):
 
 
 class Launcher:
-    def __init__(self, *, executable='', credentials_path=None, mcp_config='', model='gemini-3.5-flash-lite', client_info=None):
+    def __init__(self, *, executable='', credentials_path=None, mcp_config='', model='gemini-3.5-flash-lite', client_info=None, key_provider=None):
         self.executable, self.credentials_path = executable, credentials_path
         self.mcp_config, self.model = mcp_config, model
         self.client_info = client_info
+        self.key_provider = key_provider
 
     def __call__(self, directory, instructions, *, summary=False):
         binary = find_gemini(self.executable)
-        key = read_api_key(self.credentials_path)
+        from .secret_store import StoreUnavailable
+        try:
+            key = self.key_provider() if self.key_provider else None
+        except StoreUnavailable:
+            # Older installations can continue using their explicitly configured source.
+            key = None
+        if key is None:
+            key = read_api_key(self.credentials_path or Path.home() / '.gemini/.env')
         root = Path(directory)
         work = root / 'work'
         work.mkdir(mode=0o700, exist_ok=True)
+        # Stop CLI dotenv discovery at the private workspace, including parent /tmp.
+        # --ignore-env alone does not ignore trusted .gemini/.env ancestors.
+        (work / '.env').write_text('')
         # A fresh CLI home prevents inherited permanent grants, hooks and persistent history.
         home = root / ('runtime-' + uuid.uuid4().hex)
         config = home / '.gemini'

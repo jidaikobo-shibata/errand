@@ -30,8 +30,8 @@ def prompt(message):
     status = 'end_turn'
     if text == 'CRASH':
         os._exit(3)
-    if text == 'WAIT':
-        cancel.wait(8)
+    if text in ('WAIT', 'SHORT'):
+        cancel.wait(.15 if text == 'SHORT' else 8)
         status = 'cancelled'
     elif text.startswith('WRITE:') or text.startswith('ALWAYS:') or text == 'UNSUPPORTED':
         request_id = message['id']  # Deliberately collides with the client's request ID.

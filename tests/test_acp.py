@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -35,6 +36,32 @@ class ACPTests(unittest.TestCase):
             if time.monotonic() > deadline:
                 self.fail('ACP operation timed out')
             time.sleep(.005)
+
+    def test_delayed_interrupt_cannot_cancel_the_next_turn(self):
+        session, events, _ = self.make_session()
+        entered, release, done = threading.Event(), threading.Event(), threading.Event()
+        original = session._interrupt
+        def delayed(generation, turn_id):
+            entered.set()
+            release.wait(4)
+            original(generation, turn_id)
+            done.set()
+        session._interrupt = delayed
+        self.addCleanup(release.set)
+        session.send('SHORT')
+        self.until(lambda: session._prompt_future is not None)
+        session.interrupt()
+        self.until(entered.is_set)
+        self.until(lambda: not session.busy)
+        session.send('WAIT')
+        self.until(lambda: session._prompt_future is not None)
+        release.set()
+        self.until(done.is_set)
+        self.assertTrue(session.busy)
+        self.assertFalse(session._interrupt_requested)
+        session._interrupt = original
+        session.interrupt()
+        self.until(lambda: not session.busy)
 
     def test_native_approval_modes_apply_before_prompt_and_reset(self):
         session, events, _ = self.make_session()

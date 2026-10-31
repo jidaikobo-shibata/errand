@@ -360,27 +360,32 @@ class Session:
             self._interrupt_requested = True
             self._cancel_permissions()
             generation = self._generation
+            turn_id = self._item_id
         self._emit('requests_clear')
         self._emit('state', busy=True, message='中断しています…')
-        self._pool.submit(self._interrupt, generation)
+        self._pool.submit(self._interrupt, generation, turn_id)
 
-    def _interrupt(self, generation):
-        if not self._current(generation):
-            return
+    def _interrupt(self, generation, turn_id):
         try:
-            if self._server and self._session_id:
-                self._server.notify('session/cancel', {'sessionId': self._session_id})
-            future = self._prompt_future
+            with self._lock:
+                if (not self._current(generation) or self._item_id != turn_id
+                        or not self._busy or not self._interrupt_requested):
+                    return
+                if self._server and self._session_id:
+                    self._server.notify('session/cancel', {'sessionId': self._session_id})
+                future = self._prompt_future
             if future:
                 future.result(timeout=5)
             else:
-                self._dispose_connection()
+                self._dispose_connection(expected_turn=turn_id)
         except Exception:
             if self._current(generation):
-                self._dispose_connection()
+                self._dispose_connection(expected_turn=turn_id)
 
-    def _dispose_connection(self):
+    def _dispose_connection(self, expected_turn=None):
         with self._lock:
+            if expected_turn is not None and self._item_id != expected_turn:
+                return
             server, self._server = self._server, None
             self._session_id = None
             self._requests.clear()

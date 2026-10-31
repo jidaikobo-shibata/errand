@@ -20,11 +20,12 @@ with tempfile.TemporaryDirectory(prefix='errand-native-local-') as directory:
             pass
         def do_POST(self):
             data = self.rfile.read(int(self.headers['Content-Length']))
+            assert b'ENV-LEAK-loaded-from-parent' not in data, 'CLI loaded parent dotenv'
             calls.append(self.path)
             if len(calls) in (1, 5, 11):
                 part = {'functionCall': {'name': 'write_file', 'args': {'file_path': str(target), 'content': 'native-created'}}}
             elif len(calls) in (3, 7, 9):
-                part = {'functionCall': {'name': 'run_shell_command', 'args': {'command': 'printf native-shell'}}}
+                part = {'functionCall': {'name': 'run_shell_command', 'args': {'command': 'printf native-shell; printf ENV-LEAK-%s "$ERRAND_AUDIT_INHERITED"'}}}
             else:
                 part = {'text': '完了しました。'}
             response = {'candidates': [{'content': {'role': 'model', 'parts': [part]}, 'finishReason': 'STOP', 'index': 0}], 'usageMetadata': {'promptTokenCount': 1, 'candidatesTokenCount': 1, 'totalTokenCount': 2}}
@@ -43,6 +44,7 @@ if(!['127.0.0.1','localhost','::1'].includes(host)) throw new Error('external ne
 return orig.apply(this,args);};''')
     events = []
     def launch(location, instructions, summary=False):
+        Path(location, '.env').write_text('ERRAND_AUDIT_INHERITED=loaded-from-parent\n')
         with patch('errand.gemini_cli.read_api_key', return_value='synthetic-offline-key'):
             spec = Launcher()(location, instructions, summary=summary)
         spec['environment'].update(NODE_OPTIONS='--require=' + str(preload), HOME=directory,

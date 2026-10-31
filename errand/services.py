@@ -41,6 +41,8 @@ class AIServices(CodexServices):
     def __init__(self, product, settings):
         super().__init__(product)
         self.settings = settings
+        from .secret_store import SecretStore
+        self.credential_store = SecretStore(product.application_id, isolated=settings.isolated)
 
     def conversation(self, emit, *, dispatch, codex, command):
         if self.settings.get('ai-provider') == 'gemini-cli':
@@ -48,7 +50,8 @@ class AIServices(CodexServices):
             from .gemini_cli import Launcher, file_uri, approve_attached_read
             launch = Launcher(executable=self.settings.get('gemini-cli-path'),
                               credentials_path=self.settings.get('gemini-env-path') or None,
-                              mcp_config=self.settings.get('gemini-mcp-config'), client_info=self.product.client_info())
+                              mcp_config=self.settings.get('gemini-mcp-config'), client_info=self.product.client_info(),
+                              key_provider=self.credential_store.load)
             return ACPSession(emit, dispatch=dispatch, launch=launch,
                               instructions=self.product.instructions + self.product.gemini_cli_instructions,
                               summary_instructions=self.product.summary_instructions,

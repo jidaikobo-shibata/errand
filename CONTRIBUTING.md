@@ -34,11 +34,18 @@ ACP v1の会話・モデル・進捗・今回限りの承認・中断・要約�
 拒否し、中断・終了では保留中の確認をキャンセルします。ファイル参照のURI変換も注入できます。
 
 Gemini CLIの探索・一時設定・キー取得・MCP設定の選択は`errand/gemini_cli.py`にあります。
+APIキーは`errand/secret_store.py`で製品IDごとにOSの保管庫から取得し、未保存なら環境変数・
+指定ファイル・既定ファイルへフォールバックします。保管庫がロックされた場合は停止します。
+Ubuntuはlibsecret GI、macOSは`macos_secret_store.py`のSecurity.framework（ctypes）を利用し、
+キーを引数に渡すプロセスや平文ファイルは使いません。OSアクセスはGUIスレッド外で行います。
 APIキーはACPの認証要求で渡し、子プロセス環境や設定ファイルへ保存しません。
+CLIの作業ディレクトリには空の.envを作り、親ディレクトリのdotenv探索を遮断します。
+中断は依頼IDを捕捉し、古い中断処理が次の依頼・プロセスを止めないようにします。
 既存のCLIホームを上書きせず、タブ専用ホーム・既定承認モード・非恒久的な許可を使います。
 CLIのOSサンドボックスをCodexと同じものとして扱わないでください。
 共通画面は`agent/permission`を表示し、エージェント別の分岐を持ちません。
-supports_auto_review=Falseなら手動承認に固定し、保存済みのCodexの承認設定を変えません。
+approval_modes指定時はCLI固有の承認方法をタブ内で選択します。supports_auto_review=Falseは
+Codexの保存済み承認設定を引き継がず、CLI固有モード未指定の場合は手動承認に固定します。
 supports_file_references=Trueならsendのfiles引数へ絶対パスを渡し、従来のCodex送信は維持します。
 
 ```bash
@@ -51,6 +58,9 @@ ACP画面検証も独立Wayland・D-Bus・一時HOME/設定で行います。nat
 Gemini CLIを使いますが、ダミーキー・一時ファイル・ループバックの疑似APIのみを使い、
 Nodeの外部ネットワーク接続を遮断します。CLI本体やOSの設定を変更しません。
 この検証は実モデルの応答速度・品質や実MCP接続を確認するものではありません。
+保管庫の単体テストはモック/isolatedメモリを使い、通常のキーリングに触れません。
+実libsecretを検証する場合は別D-Bus・一時HOME/設定/データと専用キーリングでダミーキーを使います。
+既存ユーザーの保管庫や実キーを自動テストに使わないでください。
 
 ErrandのGemini接続はCLI/ACPに一本化しています。旧設定`gemini`は`gemini-cli`へ正規化します。
 `chat_foundation/gemini`のAPI直接接続は共通基盤の再利用用に残し、Errandからは選択しません。

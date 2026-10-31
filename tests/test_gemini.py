@@ -72,6 +72,18 @@ class GeminiTests(unittest.TestCase):
         self.assertFalse(session.busy)
         transport.assert_not_called()
 
+    def test_opaque_authorization_keys_and_header_safety(self):
+        key = 'AQ.synthetic-token.with.dots_0123-abc+/='  # Not a real credential.
+        self.assertEqual(read_api_key(environ={'GEMINI_API_KEY': key}), key)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / '.env'
+            for value in (key, '"' + key + '"', "'" + key + "'"):
+                path.write_text('GEMINI_API_KEY=' + value + '\n')
+                self.assertEqual(read_api_key(path, {}), key)
+        for invalid in ('key\nInjected:header', 'key\rInjected', 'key\x00',
+                        'key\tother', 'key with spaces', 'キー', 'a' * 16385):
+            with self.subTest(invalid_length=len(invalid)), self.assertRaises(ValueError):
+                read_api_key(environ={'GEMINI_API_KEY': invalid})
     def test_multiturn_history_signatures_and_summary_isolation(self):
         calls = []
 

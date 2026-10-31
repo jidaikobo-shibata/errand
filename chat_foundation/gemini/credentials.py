@@ -27,6 +27,9 @@ def read_api_key(path=None, environ=None):
             raise ValueError('Gemini APIキー設定を読み込めませんでした。') from None
     if not key:
         raise ValueError('GEMINI_API_KEYがありません。環境変数または指定したキー設定ファイルを確認してください。')
-    if not re.fullmatch(r'[A-Za-z0-9_-]+', key):
+    # Keys are opaque credentials, not a fixed alphabet or prefix. In particular,
+    # newer authorization keys contain dots. Reject whitespace/control/non-ASCII
+    # characters for header safety; let Google validate the credential itself.
+    if len(key) > 16384 or not re.fullmatch(r'[!-~]+', key):
         raise ValueError('Gemini APIキーの形式を確認してください。')
     return key

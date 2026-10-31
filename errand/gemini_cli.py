@@ -44,6 +44,11 @@ def approve_attached_read(tool, attached_paths, mode):
                     for path in attached_paths))
 
 
+def is_mode_notice(text, requested_mode):
+    # Gemini CLI 0.66 sends this as assistant text while processing set_mode.
+    return text == '[MODE_UPDATE] ' + requested_mode
+
+
 class Launcher:
     def __init__(self, *, executable='', credentials_path=None, mcp_config='', model='gemini-3.5-flash-lite', client_info=None, key_provider=None):
         self.executable, self.credentials_path = executable, credentials_path

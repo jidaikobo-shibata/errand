@@ -63,6 +63,24 @@ class ACPTests(unittest.TestCase):
         session.interrupt()
         self.until(lambda: not session.busy)
 
+    def test_mode_notices_are_hidden_only_during_mode_rpc(self):
+        from errand.gemini_cli import is_mode_notice
+        session, events, _ = self.make_session()
+        session.mode_notice_filter = is_mode_notice
+        session.approval_modes = (('default', 'Manual'), ('autoEdit', 'Edit'), ('yolo', 'All'))
+        for mode in ('autoEdit', 'yolo', 'default'):
+            events.clear()
+            session.set_approval_mode(mode)
+            session.send('hello')
+            self.until(lambda: not session.busy)
+            self.assertEqual(''.join(d['text'] for k, d in events if k == 'delta'), '回答です。')
+            self.assertEqual([d['text'] for k, d in events if k == 'assistant'], ['回答です。'])
+        events.clear()
+        session.send('EXPLAIN_MODE')
+        self.until(lambda: not session.busy)
+        self.assertEqual([d['text'] for k, d in events if k == 'assistant'], ['[MODE_UPDATE] autoEdit'])
+        self.assertFalse(is_mode_notice('説明: [MODE_UPDATE] autoEdit', 'autoEdit'))
+
     def test_native_approval_modes_apply_before_prompt_and_reset(self):
         session, events, _ = self.make_session()
         session.approval_modes = (('default', 'Manual'), ('autoEdit', 'Edit'), ('yolo', 'All'))

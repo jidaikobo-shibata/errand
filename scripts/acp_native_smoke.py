@@ -9,7 +9,7 @@ import threading
 import time
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from errand.gemini_cli import Launcher, file_uri, approve_attached_read
+from errand.gemini_cli import Launcher, file_uri, approve_attached_read, is_mode_notice
 from chat_foundation.acp.session import Session
 with tempfile.TemporaryDirectory(prefix='errand-native-local-') as directory:
     root = Path(directory)
@@ -53,7 +53,7 @@ return orig.apply(this,args);};''')
     session = Session(lambda k, d: events.append((k, d)), launch=launch, instructions='offline fixture',
                       summary_instructions='summary', assistant_name='Gemini', required_mode='default',
                       default_model='gemini-3.5-flash-lite', file_uri=file_uri,
-                      permission_policy=approve_attached_read,
+                      permission_policy=approve_attached_read, mode_notice_filter=is_mode_notice,
                       approval_modes=(('default', 'Manual'), ('autoEdit', 'Edit'), ('yolo', 'All')))
     def until(test):
         deadline = time.monotonic() + 20
@@ -106,6 +106,7 @@ return orig.apply(this,args);};''')
         until(lambda: not session.busy or bool(session._requests))
         assert not session._requests
         assert events[-1][1]['status'] == 'completed'
+        assert not any('[MODE_UPDATE]' in d['text'] for k, d in events if k in ('delta', 'assistant'))
         assert len(calls) == 6
         session.send('コマンドを実行してください。')
         until(lambda: bool(session._requests) or not session.busy)
@@ -122,6 +123,7 @@ return orig.apply(this,args);};''')
         until(lambda: not session.busy or bool(session._requests))
         assert not session._requests
         assert len(calls) == 10
+        assert not any('[MODE_UPDATE]' in d['text'] for k, d in events if k in ('delta', 'assistant'))
         assert events[-1][1]['status'] == 'completed'
         print('PASS: native YOLO executes shell without permission dialog')
         session.set_approval_mode('default')
@@ -131,7 +133,8 @@ return orig.apply(this,args);};''')
         request = next(d for k, d in reversed(events) if k == 'request')
         session.answer(request['request_id'], {'cancel': True})
         until(lambda: not session.busy)
-        print('PASS: switching back to default restores edit approval')
+        assert not any('[MODE_UPDATE]' in d['text'] for k, d in events if k in ('delta', 'assistant'))
+        print('PASS: switching back to default restores edit approval; no internal mode text')
         for mode in ('autoEdit', 'yolo'):
             session.set_approval_mode(mode)
             events.clear()

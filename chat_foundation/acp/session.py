@@ -19,7 +19,7 @@ class Session:
 
     def __init__(self, emit, *, dispatch=lambda fn: fn(), launch, instructions, summary_instructions,
                  assistant_name='AI', notice='', default_model=None, process_factory=JsonRpcProcess,
-                 file_uri=None, required_mode=None, approval_modes=(), permission_policy=None):
+                 file_uri=None, required_mode=None, approval_modes=(), permission_policy=None, mode_notice_filter=None):
         self.emit, self.dispatch = emit, dispatch
         self.launch = launch
         self.instructions, self.summary_instructions = instructions, summary_instructions
@@ -27,6 +27,8 @@ class Session:
         self.default_model = default_model
         self.file_uri = file_uri or (lambda path: path.as_uri())
         self.required_mode = required_mode
+        self.mode_notice_filter = mode_notice_filter
+        self._changing_mode = None
         self.permission_policy = permission_policy
         self._attached_paths = ()
         self.approval_modes = tuple(approval_modes)
@@ -103,9 +105,7 @@ class Session:
             mode = (result.get('modes') or {}).get('currentModeId')
             if self.required_mode and mode != self.required_mode:
                 # Start with the explicitly configured default, never an inherited grant.
-                server.request('session/set_mode', {
-                    'sessionId': result['sessionId'], 'modeId': self.required_mode,
-                }).result(timeout=15)
+                self._set_mode(server, result['sessionId'], self.required_mode)
             self._active_mode = self.required_mode or mode
             self._available_modes = {m['id'] for m in (result.get('modes') or {}).get('availableModes', [])}
             models = result.get('models') or {}
@@ -127,6 +127,15 @@ class Session:
                 self._supports_model_selection = bool(models)
                 self.default_model = current
             return server
+
+    def _set_mode(self, server, session_id, mode):
+        with self._lock:
+            self._changing_mode = mode
+        try:
+            server.request('session/set_mode', {'sessionId': session_id, 'modeId': mode}).result(timeout=15)
+        finally:
+            with self._lock:
+                self._changing_mode = None
 
     def load_models(self):
         with self._lock:
@@ -209,9 +218,7 @@ class Session:
             if self.approval_modes and self.approval_mode != self._active_mode:
                 if self.approval_mode not in self._available_modes:
                     raise RpcError('このCLIは指定した承認方法に対応していません。')
-                server.request('session/set_mode', {
-                    'sessionId': self._session_id, 'modeId': self.approval_mode,
-                }).result(timeout=15)
+                self._set_mode(server, self._session_id, self.approval_mode)
                 self._active_mode = self.approval_mode
             if self._supports_model_selection:
                 server.request('session/set_model', {'sessionId': self._session_id, 'modelId': model}).result(timeout=15)
@@ -269,6 +276,9 @@ class Session:
             if kind == 'agent_message_chunk' and not self._interrupt_requested:
                 content = update.get('content') or {}
                 if content.get('type') == 'text' and isinstance(content.get('text'), str):
+                    if (self._changing_mode is not None and self.mode_notice_filter
+                            and self.mode_notice_filter(content['text'], self._changing_mode)):
+                        return
                     self._text += content['text']
                     self._emit('delta', generation, item_id=self._item_id, text=content['text'])
             elif kind in ('tool_call', 'tool_call_update'):
@@ -449,7 +459,7 @@ class Session:
                           instructions=self.summary_instructions, summary_instructions=self.summary_instructions,
                           assistant_name=self.assistant_name, default_model=self.default_model,
                           process_factory=self.process_factory, required_mode=self.required_mode,
-                          file_uri=self.file_uri)
+                          file_uri=self.file_uri, mode_notice_filter=self.mode_notice_filter)
         summary._models = self._models
         self._summary = summary
         self._busy = True

@@ -59,7 +59,8 @@ def prompt(message):
                 'status': 'completed' if outcome.get('optionId') == 'yes' else 'failed'})
         status = 'cancelled' if cancel.is_set() else 'end_turn'
     if status == 'end_turn':
-        for chunk in ('要約' if text.startswith('次の会話を要約') else '回答', 'です。'):
+        for chunk in (('[MODE_UPDATE] autoEdit',) if text == 'EXPLAIN_MODE' else
+                      ('要約' if text.startswith('次の会話を要約') else '回答', 'です。')):
             update({'sessionUpdate': 'agent_message_chunk', 'content': {'type': 'text', 'text': chunk}})
     send({'id': message['id'], 'result': {'stopReason': status}})
 
@@ -91,6 +92,8 @@ for line in sys.stdin:
             continue
         if method == 'session/set_mode':
             (Path.cwd() / 'mode.txt').write_text(message['params']['modeId'])
+            update({'sessionUpdate': 'agent_message_chunk', 'content': {
+                'type': 'text', 'text': '[MODE_UPDATE] ' + message['params']['modeId']}})
         result = {}
     elif method == 'session/prompt':
         threading.Thread(target=prompt, args=(message,), daemon=True).start()

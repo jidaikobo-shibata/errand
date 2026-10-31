@@ -1,0 +1,56 @@
+{
+  "reviewed": "2026-10-31",
+  "review_after_days": 90,
+  "node_security_floors": {
+    "22": "22.23.4",
+    "24": "24.22.1",
+    "26": "26.12.1"
+  },
+  "cli_minimums": {
+    "@google/gemini-cli": "0.39.1",
+    "@openai/codex": "0.39.0"
+  },
+  "direct_licenses": {
+    "@google/gemini-cli": [
+      "Apache-2.0"
+    ],
+    "@openai/codex": [
+      "Apache-2.0"
+    ],
+    "PyGObject": [
+      "LGPL-2.1-or-later"
+    ],
+    "pycairo": [
+      "LGPL-2.1-only OR MPL-1.1"
+    ],
+    "PyInstaller": [
+      "GPLv2-or-later with a special exception which allows to use PyInstaller to build and distribute non-free programs (including commercial ones)"
+    ],
+    "meson": [
+      "Apache License, Version 2.0"
+    ],
+    "ninja": [
+      "Apache-2.0"
+    ]
+  },
+  "references": [
+    "https://nodejs.org/en/blog/vulnerability/october-2026-security-releases",
+    "https://github.com/google-github-actions/run-gemini-cli/security/advisories/GHSA-wpqr-6v78-jr5g",
+    "https://github.com/openai/codex/security/advisories/GHSA-w5fx-fh39-j5rw",
+    "https://documentation.ubuntu.com/security/security-updates/osv/"
+  ],
+  "build_dependencies": {
+    "PyInstaller": {
+      "version": "6.22.3",
+      "license": "GPLv2-or-later with a special exception which allows to use PyInstaller to build and distribute non-free programs (including commercial ones)"
+    },
+    "meson": {
+      "version": "1.12.1",
+      "license": "Apache License, Version 2.0"
+    },
+    "ninja": {
+      "version": "1.13.2",
+      "license": "Apache-2.0"
+    }
+  }
+}

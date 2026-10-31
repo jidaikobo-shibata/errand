@@ -246,6 +246,38 @@ IntelのGTK依存は環境によってソースビルドになり、ビルド時
 python3 -m unittest discover -s tests -v
 ```
 
+依存の健全性もテスト対象です。通常の単体テストでは、確認済みのセキュリティ下限、
+ライセンス宣言・ビルド依存の固定値、ポリシーの見直し期限、取得失敗・ページングの扱いを
+ネットワークなしで検証します。ポリシーは`scripts/dependency-policy.json`で管理します。
+90日を過ぎた場合は、公式告知を確認してから見直し日・下限値を更新してください。
+
+実環境のオンライン照合は次で実行します。送信するのは公開パッケージ名・版・ecosystemだけです。
+APIキー・会話・設定ファイル・プロジェクト内容は送信しません。
+
+```bash
+python3 scripts/dependency_health.py --online
+```
+
+同じオンライン照合をunittestへ含める場合:
+
+```bash
+ERRAND_CHECK_DEPENDENCIES=1 \
+  python3 -m unittest discover -s tests -p test_dependency_health.py -v
+```
+
+終了コードは0＝照合範囲内で問題なし、1＝既知CVEまたはライセンス宣言等の要対応、
+2＝収集・通信・対応OS等に未確認あり、です。CVEを自動除外しません。Ubuntuが修正延期・
+評価中としているものも検出するため、1はErrandで悪用可能と確認したことを意味しません。
+Nodeの系列ごとの最新セキュリティ版はNode公式リリース一覧、Python/npmとUbuntuの
+ソースパッケージ（Python本体・OpenSSLを含む）はOSVで照合します。Ubuntuは版の接尾辞を保持し、上流版と比較しません。
+主要依存のライセンスは宣言値の変化と通知ファイルの有無を確認するもので、配布条件の
+完全な法的審査ではありません。PyInstaller等の固定ビルド依存もPyPIの宣言と照合します。
+
+CLI内にバンドルされpackage.jsonを持たない依存や、macOSのネイティブライブラリ全体は
+このチェックでは網羅しません。macOSのネイティブ照合は未対応として終了コード2を返します。
+実配布物のBUILD_INFO.json・通知・対応ソースと別途照合してください。
+実行ファイルの実パスなどを含めずJSONへ出力するには`--json`を付けます。
+
 独立したGTK画面と疑似サーバーを使う操作検証:
 
 ```bash

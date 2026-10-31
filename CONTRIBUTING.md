@@ -29,6 +29,12 @@ Geminiの文章生成・会話履歴・中断・キー読み込みは `chat_foun
 `supports_reasoning` 属性を参照します。未指定なら従来のCodex表示・機能を維持します。
 Geminiのモデル一覧はローカル定義で、API上の利用資格を保証しません。
 実キーの読み出しやGoogleへの送信をテストに含めないでください。
+Geminiのtransportは本文チャンクのコールバックを受け取り、SSEで途中の文章を渡します。
+完了前に切れた応答は履歴に加えません。共有イベントの`user`に任意の`started_at`
+（time.monotonicの秒）を追加しました。既存ホストで未指定なら画面の受信時刻を使います。
+回答時間の計算は`chat_foundation/core/timing.py`、表示は共通会話画面が担当します。
+`scripts/message_copy_smoke.py`と`scripts/gemini_smoke.py`で、時間表示・本文コピーからの
+除外・途中表示・要約との分離を確認します。
 
 Geminiの接続と状態管理は次で検証します。GUI検証は独立Wayland・D-Busセッションと
 一時HOME・設定で行い、`GEMINI_API_KEY` と `GOOGLE_API_KEY` は引き継がないでください。

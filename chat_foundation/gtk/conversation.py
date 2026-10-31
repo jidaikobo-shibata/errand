@@ -7,6 +7,7 @@ The view never imports a product or creates a Codex implementation itself.
 import json
 import random
 import sys
+import time
 from pathlib import Path
 
 import gi
@@ -17,6 +18,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 from .markdown_widget import MarkdownView
 from .elicitation_widget import ElicitationView
 from ..core.controller import ConversationController
+from ..core.timing import ResponseTiming
 
 
 MAX_PROMPT_CHARACTERS = 100_000
@@ -53,6 +55,8 @@ class Conversation(Gtk.Box):
         self.topic = "新しいお願い"
         self.messages = {}
         self._active_copy_group = None
+        self._response_timing = None
+        self._response_failed = False
         self.summary_text = None
         self.message_widgets = []
         self._navigation_index = None
@@ -756,7 +760,14 @@ class Conversation(Gtk.Box):
                 copy_button.set_tooltip_text('コピーしました')
                 copy_button.update_property([Gtk.AccessibleProperty.LABEL], [heading + 'の回答をコピーしました'])
             copy_button.connect('clicked', copy_message)
-            box.append(copy_button)
+            footer = Gtk.Box(spacing=6)
+            footer.append(copy_button)
+            content.response_timing = self._response_timing
+            content.timing_label = Gtk.Label(visible=False, valign=Gtk.Align.CENTER)
+            content.timing_label.add_css_class('caption')
+            content.timing_label.add_css_class('dim-label')
+            footer.append(content.timing_label)
+            box.append(footer)
             self.update_copy_group(group, complete)
         if heading in {"あなた", self.assistant_name}:
             row = Gtk.Overlay()
@@ -774,11 +785,18 @@ class Conversation(Gtk.Box):
         last = None
         for part in group:
             part.message_copy_button.set_visible(False)
+            part.timing_label.set_visible(False)
             text = part.get_source() if isinstance(part, MarkdownView) else part.get_text()
             if text:
                 last = part
         if complete and last is not None:
             last.message_copy_button.set_visible(True)
+            if last.response_timing:
+                text, details = last.response_timing.display()
+                last.timing_label.set_text(text)
+                last.timing_label.set_tooltip_text(details)
+                last.timing_label.update_property([Gtk.AccessibleProperty.LABEL], [details])
+                last.timing_label.set_visible(bool(text))
 
     def copy_message_to_clipboard(self, text):
         self.get_clipboard().set(text)
@@ -971,6 +989,8 @@ class Conversation(Gtk.Box):
         elif kind == "thread":
             self.update_model_controls()
         elif kind == "user":
+            self._response_timing = ResponseTiming(data.get('started_at', time.monotonic()))
+            self._response_failed = False
             if self.topic == "新しいお願い":
                 self.topic = " ".join(data["text"].split())[:24]
                 if self.page:
@@ -984,6 +1004,8 @@ class Conversation(Gtk.Box):
             self.summary_copy_button.set_visible(bool(self.summary_text))
             self.status.set_text('要約しました。')
         elif kind in {"delta", "assistant"}:
+            if data['text'] and self._response_timing:
+                self._response_timing.text_received(time.monotonic())
             self.invalidate_summary()
             item_id = data["item_id"]
             content = self.messages.get(item_id)
@@ -999,11 +1021,15 @@ class Conversation(Gtk.Box):
             description = item.get("command") or item.get("type", "作業")
             self.status.set_text(("完了: " if data["completed"] else "実行: ") + description)
         elif kind == "error":
+            self._response_failed = True
             self.pending_submission = None
             self.add_message("エラー", data["message"])
         elif kind == "state":
             busy = data["busy"]
             if not busy:
+                if self._response_timing:
+                    self._response_timing.finish(time.monotonic(), data.get('status') or
+                                                 ('failed' if self._response_failed else 'completed'))
                 self.update_copy_group(self._active_copy_group or [], complete=True)
             self.status.set_text(data["message"])
             self.send_button.set_sensitive(not busy)
@@ -1034,6 +1060,8 @@ class Conversation(Gtk.Box):
                 self.history.remove(child)
             self.messages.clear()
             self._active_copy_group = None
+            self._response_timing = None
+            self._response_failed = False
             self.update_navigation()
             for request_id in list(self.requests):
                 self.remove_request(request_id)

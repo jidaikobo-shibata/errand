@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import tempfile
 import threading
+import time
 
 from .protocol import AppServer, CodexMissing, RpcError, server_command
 from .connection import initialize
@@ -181,7 +182,7 @@ class Session:
         self._model, self._effort = model, effort
         self._busy = True
         self._interrupt_requested = False
-        self._emit("user", text=text)
+        self._emit("user", text=text, started_at=time.monotonic())
         self._emit("state", busy=True, message="Codexに接続しています…")
         generation = self._generation
         self._pool.submit(self._send, generation, text)

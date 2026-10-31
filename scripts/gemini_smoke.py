@@ -3,6 +3,7 @@
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import time
 from unittest.mock import Mock
 
@@ -12,6 +13,7 @@ from chat_foundation.gemini.session import Session, DEFAULT_MODEL
 
 app = Application(isolated=True, smoke=True)
 failures = []
+stream_release = threading.Event()
 sys.excepthook = lambda kind, error, traceback: failures.append(error)
 
 
@@ -51,10 +53,20 @@ def verify(_):
             assert not view.prompt_fits('長' * 100_001)
             assert '分割' in view.status.get_text()
             response = {'candidates': [{'content': {'parts': [{'text': '日本語の回答'}]}, 'finishReason': 'STOP'}]}
-            transport = Mock(return_value=response)
+            def stream(model, contents, instructions, key, cancel, on_chunk):
+                on_chunk({'candidates': [{'content': {'parts': [{'text': '日本語'}]}}]})
+                stream_release.wait(5)
+                return response
+            transport = Mock(side_effect=stream)
             view.session._transport = transport
             view.input.get_buffer().set_text('こんにちは')
             view.send(None)
+            drain_until(lambda: '日本語' in view.conversation_text())
+            assert view.session.busy
+            partial = next(iter(view.messages.values()))
+            assert not partial.message_copy_button.get_visible()
+            assert not partial.timing_label.get_visible()
+            stream_release.set()
             drain_until(lambda: '日本語の回答' in view.conversation_text() and not view.session.busy)
             drain_until(lambda: view.input.get_buffer().get_char_count() == 0)
             assert 'Gemini\n' in view.conversation_text()
@@ -62,10 +74,15 @@ def verify(_):
             content = next(iter(view.messages.values()))
             drain_until(lambda: content.message_copy_button.get_visible())
             assert content.copy_group == [content]
+            assert content.timing_label.get_visible()
+            assert '初字' in content.timing_label.get_text()
+            assert '最初の文字受信から終了まで' in content.timing_label.get_tooltip_text()
             transport.assert_called_once()
+            first_timing = content.timing_label.get_text()
             view.create_summary(None)
             drain_until(lambda: bool(view.summary_text))
             assert view.summary_copy_button.get_visible()
+            assert content.timing_label.get_text() == first_timing
             view.input.get_buffer().set_text('失敗する依頼')
             transport.side_effect = RuntimeError('fake-key')
             view.send(None)
@@ -86,10 +103,11 @@ def verify(_):
             assert not isinstance(codex.session, Session)
             assert isinstance(view.session, Session)
             assert codex.approval_choice.get_visible()
-            print('PASS: provider preferences, independent tabs, Gemini replies, summary, file rejection and failure drafts')
+            print('PASS: provider preferences, independent tabs, Gemini streaming, timing, summary, file rejection and failure drafts')
     except Exception as error:
         failures.append(error)
     finally:
+        stream_release.set()
         app.quit()
 
 

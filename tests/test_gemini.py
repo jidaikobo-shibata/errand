@@ -84,10 +84,11 @@ class GeminiTests(unittest.TestCase):
                         'key\tother', 'key with spaces', 'キー', 'a' * 16385):
             with self.subTest(invalid_length=len(invalid)), self.assertRaises(ValueError):
                 read_api_key(environ={'GEMINI_API_KEY': invalid})
+
     def test_multiturn_history_signatures_and_summary_isolation(self):
         calls = []
 
-        def transport(model, contents, instructions, key, cancel):
+        def transport(model, contents, instructions, key, cancel, on_chunk):
             calls.append((model, deepcopy(contents), instructions))
             return answer()
 
@@ -110,6 +111,90 @@ class GeminiTests(unittest.TestCase):
         session.send('新規')
         self.wait(session)
         self.assertEqual(len(calls[-1][1]), 1)
+
+    def test_streaming_delivers_text_before_completion_and_uses_one_message_id(self):
+        started, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+
+        def transport(model, contents, instructions, key, cancel, on_chunk):
+            on_chunk(answer('途中'))
+            started.set()
+            release.wait(3)
+            on_chunk(answer('から続き'))
+            return answer('途中から続き')
+
+        session, events = self.make_session(transport)
+        session.send('依頼')
+        self.assertTrue(started.wait(2))
+        self.assertTrue(session.busy)
+        self.assertEqual([data['text'] for kind, data in events if kind == 'delta'], ['途中'])
+        self.assertNotIn('assistant', [kind for kind, _ in events])
+        self.assertNotIn('submitted', [kind for kind, _ in events])
+        release.set()
+        self.wait(session)
+        messages = [data for kind, data in events if kind in ('delta', 'assistant')]
+        self.assertEqual(len({data['item_id'] for data in messages}), 1)
+        self.assertEqual(messages[-1]['text'], '途中から続き')
+        self.assertEqual(events[-1][1]['status'], 'completed')
+
+    def test_stream_failure_keeps_partial_text_out_of_history_and_does_not_retry(self):
+        calls = []
+
+        def transport(model, contents, instructions, key, cancel, on_chunk):
+            calls.append(contents)
+            on_chunk(answer('途中'))
+            raise TimeoutError('private detail')
+
+        session, events = self.make_session(transport)
+        session.send('依頼')
+        self.wait(session)
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(session._history)
+        self.assertIn('delta', [kind for kind, _ in events])
+        self.assertNotIn('submitted', [kind for kind, _ in events])
+        self.assertEqual(events[-1][1]['status'], 'failed')
+
+    def test_fragmented_sse_text_thoughts_and_signatures_are_merged(self):
+        chunks = [
+            {'candidates': [{'content': {'parts': [{'text': '非表示', 'thought': True}]}}]},
+            {'candidates': [{'content': {'parts': [{'text': '日本'}]}}]},
+            {'candidates': [{'content': {'parts': [{'text': '語', 'thoughtSignature': 'signature'}]},
+                             'finishReason': 'STOP'}]},
+        ]
+        wire = b': keep-alive\r\n\r\n' + b''.join(
+            b'data: ' + json.dumps(chunk, ensure_ascii=False).encode() + b'\r\n\r\n' for chunk in chunks)
+
+        class Fragmented(io.BytesIO):
+            def read1(self, size):
+                return super().read(1)
+
+        opener = Mock()
+        opener.open.return_value = Fragmented(wire)
+        received = []
+        with patch('chat_foundation.gemini.session.urllib.request.build_opener', return_value=opener):
+            result = generate(DEFAULT_MODEL, [], '', 'fake-key', threading.Event(), received.append)
+        self.assertEqual(received, chunks)
+        parts = result['candidates'][0]['content']['parts']
+        self.assertEqual(parts[0], {'text': '非表示', 'thought': True})
+        self.assertEqual(parts[1], {'text': '日本語', 'thoughtSignature': 'signature'})
+        self.assertIn(':streamGenerateContent?alt=sse', opener.open.call_args.args[0].full_url)
+        opener.open.return_value = io.BytesIO(b'data: {"error":{"message":"fake-key"}}\n\n')
+        with patch('chat_foundation.gemini.session.urllib.request.build_opener', return_value=opener):
+            with self.assertRaises(ValueError) as raised:
+                generate(DEFAULT_MODEL, [], '', 'fake-key', threading.Event())
+            self.assertNotIn('fake-key', str(raised.exception))
+
+    def test_sse_size_and_deadline_limits_and_multiline_events(self):
+        from chat_foundation.gemini.session import _stream_events
+        wire = b'data: {"candidates":\ndata: []}\n\n'
+        with patch('chat_foundation.gemini.session.time.monotonic', return_value=0):
+            self.assertEqual(list(_stream_events(io.BytesIO(wire), threading.Event(), 0)), [{'candidates': []}])
+            with patch('chat_foundation.gemini.session.MAX_RESPONSE_BYTES', 5):
+                with self.assertRaisesRegex(ValueError, '大きすぎ'):
+                    list(_stream_events(io.BytesIO(wire), threading.Event(), 0))
+        with patch('chat_foundation.gemini.session.time.monotonic', return_value=121):
+            with self.assertRaises(TimeoutError):
+                list(_stream_events(io.BytesIO(wire), threading.Event(), 0))
 
     def test_failure_is_not_retried_and_failed_prompt_does_not_enter_history(self):
         transport = Mock(side_effect=RuntimeError('fake-key sensitive detail'))
@@ -141,8 +226,10 @@ class GeminiTests(unittest.TestCase):
         started, release = threading.Event(), threading.Event()
 
         def transport(*args):
+            args[-1](answer('中断前'))
             started.set()
             release.wait(3)
+            args[-1](answer('古い回答'))
             return answer('古い回答')
 
         session, events = self.make_session(transport)
@@ -160,6 +247,7 @@ class GeminiTests(unittest.TestCase):
         self.assertFalse(session._history)
         self.assertNotIn('assistant', [kind for kind, _ in events])
         self.assertNotIn('submitted', [kind for kind, _ in events])
+        self.assertEqual([data['text'] for kind, data in events if kind == 'delta'], ['中断前'])
         session.close(wait=False)
         with self.assertRaises(ValueError):
             session.send('終了後')
@@ -178,7 +266,7 @@ class GeminiTests(unittest.TestCase):
         self.assertEqual([kind for kind, _ in events], ['reset'])
 
     def test_transport_uses_header_not_url_and_no_tools_or_redirects(self):
-        response = io.BytesIO(json.dumps(answer()).encode())
+        response = io.BytesIO(b'data: ' + json.dumps(answer()).encode() + b'\n\n')
         opener = Mock()
         opener.open.return_value = response
         with patch('chat_foundation.gemini.session.urllib.request.build_opener', return_value=opener):
@@ -191,6 +279,12 @@ class GeminiTests(unittest.TestCase):
         self.assertNotIn('tools', payload)
         self.assertEqual(payload['systemInstruction']['parts'][0]['text'], '指示')
         self.assertIsNone(_NoRedirect().redirect_request(None, None, None, None, None, None))
+        cancel = threading.Event()
+        cancel.set()
+        opener.reset_mock()
+        with patch('chat_foundation.gemini.session.urllib.request.build_opener', return_value=opener):
+            self.assertIsNone(generate(DEFAULT_MODEL, [], '', 'fake-key', cancel))
+        opener.open.assert_not_called()
 
     def test_http_errors_timeouts_and_invalid_json_are_sanitized(self):
         for failure, expected in (

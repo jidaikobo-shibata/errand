@@ -24,30 +24,93 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def generate(model, contents, instructions, key, cancel):
+def _stream_events(response, cancel, started):
+    """Parse SSE independently of network/UTF-8 chunk boundaries."""
+    pending = bytearray()
+    data_lines = []
+    total = 0
+    seen = False
+    while not cancel.is_set():
+        if time.monotonic() - started >= 120:
+            raise TimeoutError()
+        chunk = response.read1(65536)
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            raise ValueError('Geminiの応答が大きすぎるため受信を中止しました。')
+        pending.extend(chunk)
+        if not chunk:
+            pending.extend(b'\n\n')
+        while b'\n' in pending:
+            line, _, remainder = pending.partition(b'\n')
+            pending = bytearray(remainder)
+            line = line.removesuffix(b'\r')
+            if line.startswith(b'data:'):
+                data_lines.append(line[5:].removeprefix(b' '))
+            elif not line and data_lines:
+                raw = b'\n'.join(data_lines)
+                data_lines.clear()
+                if raw.strip() == b'[DONE]':
+                    return
+                event = json.loads(raw)
+                if not isinstance(event, dict):
+                    raise ValueError('Geminiの応答を読み取れませんでした。')
+                seen = True
+                if cancel.is_set():
+                    return
+                yield event
+        if not chunk:
+            if not seen:
+                raise ValueError('Geminiの応答を読み取れませんでした。')
+            return
+
+
+def _append_parts(parts, incoming):
+    for part in incoming:
+        part = deepcopy(part)
+        text_fields = {'text', 'thought', 'thoughtSignature'}
+        if (parts and 'text' in parts[-1] and set(parts[-1]) <= text_fields and set(part) <= text_fields
+                and bool(parts[-1].get('thought')) == bool(part.get('thought'))
+                and not (parts[-1].get('thoughtSignature') and part.get('thoughtSignature'))):
+            parts[-1]['text'] += part.pop('text', '')
+            parts[-1].update(part)
+        else:
+            parts.append(part)
+
+
+def generate(model, contents, instructions, key, cancel, on_chunk=None):
+    if cancel.is_set():
+        return None
     request = urllib.request.Request(
-        f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
+        f'https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse',
         data=json.dumps({'contents': contents,
                          'systemInstruction': {'parts': [{'text': instructions}]}}).encode(),
-        headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, method='POST')
+        headers={'Content-Type': 'application/json', 'Accept': 'text/event-stream',
+                 'x-goog-api-key': key}, method='POST')
     try:
         started = time.monotonic()
         context = ssl.create_default_context(cafile='/etc/ssl/cert.pem' if sys.platform == 'darwin' else None)
         opener = urllib.request.build_opener(_NoRedirect(), urllib.request.HTTPSHandler(context=context))
-        with opener.open(request, timeout=30) as response:
-            data = bytearray()
-            while not cancel.is_set():
-                if time.monotonic() - started >= 30:
-                    raise TimeoutError()
-                chunk = response.read1(65536)
-                if not chunk:
-                    break
-                data.extend(chunk)
-                if len(data) > MAX_RESPONSE_BYTES:
-                    raise ValueError('Geminiの応答が大きすぎるため受信を中止しました。')
+        merged = {'candidates': []}
         if cancel.is_set():
             return None
-        return json.loads(data)
+        with opener.open(request, timeout=30) as response:
+            for chunk in _stream_events(response, cancel, started):
+                if 'error' in chunk:
+                    raise ValueError('Geminiのストリーミング受信に失敗しました。自動再送はしません。')
+                merged.update({name: value for name, value in chunk.items() if name != 'candidates'})
+                for candidate in chunk.get('candidates') or []:
+                    if candidate.get('index', 0) != 0:
+                        continue
+                    if not merged['candidates']:
+                        merged['candidates'].append({'content': {'role': 'model', 'parts': []}})
+                    target = merged['candidates'][0]
+                    target.update({name: value for name, value in candidate.items() if name != 'content'})
+                    _append_parts(target['content']['parts'], (candidate.get('content') or {}).get('parts') or [])
+                if on_chunk:
+                    on_chunk(chunk)
+        if cancel.is_set():
+            return None
+        return merged
     except urllib.error.HTTPError as error:
         code = error.code
         error.close()
@@ -62,7 +125,7 @@ def generate(model, contents, instructions, key, cancel):
         }
         raise ValueError(f'Gemini API（HTTP {code}）: ' + messages.get(code, '応答に失敗しました。')) from None
     except (TimeoutError, socket.timeout):
-        raise ValueError('Geminiが30秒以内に応答しませんでした。別のモデルを選ぶか、時間をおいてお試しください。自動再送はしません。') from None
+        raise ValueError('Geminiの通信が時間切れになりました（通信待ち30秒・全体約120秒）。自動再送はしません。') from None
     except urllib.error.URLError:
         raise ValueError('Geminiに接続できませんでした。ネットワークを確認してください。') from None
     except (UnicodeError, json.JSONDecodeError):
@@ -156,7 +219,7 @@ class Session:
             user = {'role': 'user', 'parts': [{'text': text}]}
             contents = [user] if summary else deepcopy(self._history) + [user]
             if not summary:
-                self._emit('user', text=text)
+                self._emit('user', text=text, started_at=time.monotonic())
             self._emit('state', busy=True, message='要約を作成中…' if summary else 'Geminiの応答を待っています…')
             self._worker = threading.Thread(
                 target=self._run, args=(generation, cancel, key, model, contents, text, summary),
@@ -164,9 +227,26 @@ class Session:
             self._worker.start()
 
     def _run(self, generation, cancel, key, model, contents, text, summary):
+        item_id = uuid.uuid4().hex
+        status = 'failed'
+
+        def receive(chunk):
+            if summary:
+                return
+            for candidate in chunk.get('candidates') or []:
+                if candidate.get('index', 0) != 0:
+                    continue
+                parts = (candidate.get('content') or {}).get('parts') or []
+                delta = ''.join(part.get('text', '') for part in parts if not part.get('thought'))
+                with self._lock:
+                    if delta and not self._closed and generation == self._generation and not cancel.is_set():
+                        self._emit('delta', generation, item_id=item_id, text=delta)
+
         try:
+            if cancel.is_set():
+                return
             instructions = self.summary_instructions if summary else self.instructions
-            response = self._transport(model, contents, instructions, key, cancel)
+            response = self._transport(model, contents, instructions, key, cancel, receive)
             if cancel.is_set():
                 return
             candidates = response.get('candidates') or []
@@ -185,8 +265,10 @@ class Session:
                     # Preserve thought signatures in memory for multi-turn API requests.
                     self._history = contents + [{'role': 'model', 'parts': deepcopy(parts)}]
                     self._emit('submitted', generation, text=text)
-                    self._emit('assistant', generation, item_id=uuid.uuid4().hex, text=answer)
+                    self._emit('assistant', generation, item_id=item_id, text=answer)
+                status = 'completed'
                 if candidate.get('finishReason') == 'MAX_TOKENS':
+                    status = 'incomplete'
                     self._emit('error', generation, message='出力上限に達したため、回答は途中までです。')
         except Exception as error:
             # Never expose raw exceptions: transports may include credentials or request data.
@@ -198,7 +280,7 @@ class Session:
                 if not self._closed and generation == self._generation and not cancel.is_set():
                     self._busy = False
                     self._worker = None
-                    self._emit('state', generation, busy=False, message='入力を待っています。')
+                    self._emit('state', generation, busy=False, message='入力を待っています。', status=status)
 
     def interrupt(self):
         with self._lock:
@@ -208,7 +290,7 @@ class Session:
             self._generation += 1
             self._busy = False
             self._emit('error', message='応答の受信を中断しました。送信済みのGoogle側の処理・利用量を取り消す操作ではありません。')
-            self._emit('state', busy=False, message='中断しました。通信終了後に再送信できます。')
+            self._emit('state', busy=False, message='中断しました。通信終了後に再送信できます。', status='interrupted')
 
     def reset(self):
         with self._lock:

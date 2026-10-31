@@ -68,6 +68,10 @@ class Conversation(Gtk.Box):
             self.event, dispatch=GLib.idle_add, codex=codex, command=app.command)
         self.login = app.services.login(
             self.login_event, dispatch=GLib.idle_add, codex=codex, command=app.command)
+        name = getattr(self.session, 'assistant_name', None)
+        self.assistant_name = name if isinstance(name, str) else 'Codex'
+        notice = getattr(self.session, 'notice', None)
+        self.backend_notice = notice if isinstance(notice, str) else ''
         self.login_url = None
         self.model_entries = []
         self.effort_values = [None]
@@ -91,6 +95,7 @@ class Conversation(Gtk.Box):
         self.effort_choice.connect("notify::selected", self.effort_changed)
         effort_box.append(self.effort_choice)
         selection.append(effort_box)
+        effort_box.set_visible(getattr(self.session, 'supports_reasoning', True) is not False)
         self.model_status = status_label("現在のモデルと推論の強さを取得中…")
         selection.append(self.model_status)
         self.approval_choice = Gtk.DropDown.new_from_strings(["自分で承認", "自動レビュー"])
@@ -126,9 +131,12 @@ class Conversation(Gtk.Box):
         self.history = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.scroll.set_child(self.history)
         body.append(self.scroll)
+        self.backend_label = status_label(self.backend_notice)
+        body.append(self.backend_label)
         self.request_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         body.append(self.request_box)
-        self.status = status_label(random.choice(self.app.product.startup_tips))
+        self.status = status_label('お願いを入力してください。' if self.backend_notice
+                                   else random.choice(self.app.product.startup_tips))
         self.status.add_css_class("errand-status")
         self.status.update_property([Gtk.AccessibleProperty.LABEL], ["実行状況"])
         self.status_scroll = Gtk.ScrolledWindow(
@@ -315,6 +323,7 @@ class Conversation(Gtk.Box):
         row.append(Gtk.Box(hexpand=True))
         row.append(self.model_button)
         row.append(self.approval_choice)
+        self.approval_choice.set_visible(getattr(self.session, 'supports_approvals', True) is not False)
         row.append(self.send_button)
         body.append(row)
         app.runtime.subscribe(self.setup_event)
@@ -423,6 +432,9 @@ class Conversation(Gtk.Box):
     def prompt_fits(self, text):
         if len(text) <= MAX_PROMPT_CHARACTERS and text.count('\n') < MAX_PROMPT_LINES:
             return True
+        if getattr(self.session, 'supports_files', True) is False:
+            self.status.set_text('入力できるのは10万文字・2,000行までです。長い文章は分割して送信してください。')
+            return False
         self.status.set_text(
             "入力できるのは10万文字・2,000行までです。長いテキストはファイルとして保存し、"
             "入力欄へドロップするか、ファイルのパスとお願いを入力してください。"
@@ -489,6 +501,9 @@ class Conversation(Gtk.Box):
     def drop_files(self, target, file_list, x, y):
         if self.closed:
             return False
+        if getattr(self.session, 'supports_files', True) is False:
+            self.status.set_text('このAI接続ではファイルを扱えません。本文を入力するか、Codexのタブを使ってください。')
+            return False
         try:
             paths = []
             for file in file_list.get_files():
@@ -550,6 +565,8 @@ class Conversation(Gtk.Box):
                 raise RuntimeError("モデルを取得して選択してから送信してください。")
             draft = text
             attachments = dict(self.attachments)
+            if self.attachments and getattr(self.session, 'supports_files', True) is False:
+                raise ValueError('このAI接続ではファイルを扱えません。')
             if self.attachments:
                 text += "\n\n対象ファイル（ローカルの絶対パス、JSON配列）:\n" + json.dumps(list(self.attachments), ensure_ascii=False)
             self.session.send(text,
@@ -678,11 +695,11 @@ class Conversation(Gtk.Box):
             box.add_css_class("errand-message-user")
             box.set_halign(Gtk.Align.END)
             box.set_margin_start(48)
-        elif heading == "Codex":
+        elif heading == self.assistant_name:
             box.add_css_class("errand-message-codex")
         title = label(heading)
         title.add_css_class("caption")
-        if heading in {"あなた", "Codex"}:
+        if heading in {"あなた", self.assistant_name}:
             title.set_visible(False)
             box.update_property([Gtk.AccessibleProperty.LABEL], [heading + "の発言"])
         box.append(title)
@@ -690,7 +707,7 @@ class Conversation(Gtk.Box):
         if markdown:
             content.connect("rendered", lambda *_: self.queue_scroll_bottom())
         box.append(content)
-        if heading == "Codex":
+        if heading == self.assistant_name:
             if self._active_copy_group is None:
                 self._active_copy_group = []
             group = self._active_copy_group
@@ -741,7 +758,7 @@ class Conversation(Gtk.Box):
             copy_button.connect('clicked', copy_message)
             box.append(copy_button)
             self.update_copy_group(group, complete)
-        if heading in {"あなた", "Codex"}:
+        if heading in {"あなた", self.assistant_name}:
             row = Gtk.Overlay()
             row.add_css_class("errand-message-row")
             row.set_child(box)
@@ -971,7 +988,7 @@ class Conversation(Gtk.Box):
             item_id = data["item_id"]
             content = self.messages.get(item_id)
             if content is None:
-                content = self.add_message("Codex", "", markdown=True, complete=False)
+                content = self.add_message(self.assistant_name, "", markdown=True, complete=False)
                 self.messages[item_id] = content
             content.set_source(content.get_source() + data["text"] if kind == "delta" else data["text"],
                                immediate=kind == "assistant")
@@ -1020,7 +1037,8 @@ class Conversation(Gtk.Box):
             self.update_navigation()
             for request_id in list(self.requests):
                 self.remove_request(request_id)
-            self.status.set_text(random.choice(self.app.product.startup_tips))
+            self.status.set_text('お願いを入力してください。' if self.backend_notice
+                                 else random.choice(self.app.product.startup_tips))
             self.update_model_controls()
             self.focus_input()
 

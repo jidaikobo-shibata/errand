@@ -22,6 +22,22 @@ Markdown・数式・MCPフォームの本体は `chat_foundation/core` と `chat
 従来の呼び出しにErrandの既定値を補う薄い層です。`errand/protocol.py` は実行ファイル探索と
 共通通信の再公開を担い、取得・配置・manifestは引き続きErrandの配布処理で管理します。
 
+Geminiの文章生成・会話履歴・中断・キー読み込みは `chat_foundation/gemini` にあります。
+製品は `errand/services.py` の `AIServices` で接続先を選び、キー設定ファイルの場所・
+指示を注入します。共通コードは製品・GTK・Codex実装に依存しません。
+画面は任意の `assistant_name`、`notice`、`supports_files`、`supports_approvals`、
+`supports_reasoning` 属性を参照します。未指定なら従来のCodex表示・機能を維持します。
+Geminiのモデル一覧はローカル定義で、API上の利用資格を保証しません。
+実キーの読み出しやGoogleへの送信をテストに含めないでください。
+
+Geminiの接続と状態管理は次で検証します。GUI検証は独立Wayland・D-Busセッションと
+一時HOME・設定で行い、`GEMINI_API_KEY` と `GOOGLE_API_KEY` は引き継がないでください。
+
+```bash
+python3 -m unittest discover -s tests -p 'test_gemini.py' -v
+env GSETTINGS_BACKEND=memory python3 scripts/gemini_smoke.py
+```
+
 接続本体のテストで差し替える対象は `chat_foundation.codex` 側です。
 `tests/test_shared_codex.py` は別プロセスでErrandとGTKを読み込まないことも検証します。
 

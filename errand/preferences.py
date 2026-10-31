@@ -62,6 +62,18 @@ class Preferences(Adw.PreferencesWindow):
         self.font.set_value(app.settings.get('font-size'))
         display.add(self.font)
         page.add(display)
+        ai = Adw.PreferencesGroup(title='AI', description='変更は新しいタブから適用します。既存の会話は引き継ぎません。')
+        self.provider = Adw.ComboRow(title='新しいタブで使うAI',
+                                     model=Gtk.StringList.new(['Codex', 'Gemini（文章の会話・要約）']))
+        self.provider.set_selected(1 if app.settings.get('ai-provider') == 'gemini' else 0)
+        ai.add(self.provider)
+        self.gemini_env = Adw.EntryRow(title='Geminiのキー設定ファイルの絶対パス')
+        self.gemini_env.set_text(app.settings.get('gemini-env-path'))
+        ai.add(self.gemini_env)
+        ai.add(Adw.ActionRow(title='Gemini APIの利用条件', subtitle=(
+            'GEMINI_API_KEYを読み込みます。キーはErrandに保存しません。'
+            '無料枠・料金・データ利用条件はGoogle AI Studioで確認してください。')))
+        page.add(ai)
         codex = Adw.PreferencesGroup(title='Codex', description='変更は新しいタブから適用します。空欄なら自動で検索します。')
         self.path = Adw.EntryRow(title='実行ファイルの絶対パス')
         self.path.set_text(app.codex or '')
@@ -152,6 +164,8 @@ class Preferences(Adw.PreferencesWindow):
     def save(self, *_):
         try:
             self.app.save_preferences({'font-size': int(self.font.get_value()),
+                                       'ai-provider': 'gemini' if self.provider.get_selected() == 1 else 'codex',
+                                       'gemini-env-path': self.gemini_env.get_text().strip(),
                                        'codex-path': self.path.get_text().strip(),
                                        'open-errand': self.shortcut_value,
                                        'shortcuts': self.shortcut_overrides})

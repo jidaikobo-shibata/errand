@@ -26,3 +26,32 @@ class CodexServices:
     def runtime(self, *, dispatch):
         return RuntimeSetup(dispatch=dispatch, root=self.product.runtime_root(),
                             client_info=self.product.client_info(), resolve_codex=self.resolve_codex)
+
+
+class _NoLogin:
+    """API-key sessions have no browser login lifecycle."""
+
+    def close(self):
+        pass
+
+
+class AIServices(CodexServices):
+    """Select the backend for new tabs; existing conversations keep their backend."""
+
+    def __init__(self, product, settings):
+        super().__init__(product)
+        self.settings = settings
+
+    def conversation(self, emit, *, dispatch, codex, command):
+        if self.settings.get('ai-provider') == 'gemini':
+            from chat_foundation.gemini.session import Session as GeminiSession
+            return GeminiSession(emit, dispatch=dispatch,
+                                 instructions=self.product.instructions + self.product.gemini_instructions,
+                                 summary_instructions=self.product.summary_instructions,
+                                 credentials_path=self.settings.get('gemini-env-path') or None)
+        return super().conversation(emit, dispatch=dispatch, codex=codex, command=command)
+
+    def login(self, emit, *, dispatch, codex, command):
+        if self.settings.get('ai-provider') == 'gemini':
+            return _NoLogin()
+        return super().login(emit, dispatch=dispatch, codex=codex, command=command)

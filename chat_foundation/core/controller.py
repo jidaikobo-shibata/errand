@@ -3,6 +3,10 @@
 Implementations deliver events through the dispatch function provided by the host.
 Events retain their existing names and payloads during the incremental migration.
 This protocol describes the existing behavior; it adds no runtime wrapper.
+
+Controllers may supply assistant_name, notice, supports_files, supports_approvals
+and supports_reasoning. The shared view defaults to the existing Codex behavior
+when those optional display/capability attributes are absent.
 """
 from typing import Protocol
 

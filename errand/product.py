@@ -59,6 +59,9 @@ class ProductDefinition:
     window_title: str = "Errand — 小さなお願い"
     instructions: str = INSTRUCTIONS
     summary_instructions: str = SUMMARY_INSTRUCTIONS
+    gemini_instructions: str = ('\nこの接続は文章の会話専用です。ファイルや端末、ウェブ検索、MCP、スキルを'
+                                '利用するツールはありません。ファイルのパスだけでは内容を読めません。'
+                                '実行していない操作や検索を実行済みと説明しないでください。\n')
     setup_description: str = SETUP_DESCRIPTION
     startup_tips: tuple[str, ...] = STARTUP_TIPS
     config_directory: str = "errand"

@@ -10,7 +10,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
-from .services import CodexServices
+from .services import AIServices
 from .preferences import Preferences, load_settings, mac_key
 from .settings import DEFAULTS, validate
 from .shortcuts import ACTIONS, bindings, key_signature, signature, validate_shortcuts
@@ -257,9 +257,9 @@ class Application(Adw.Application):
         flags = Gio.ApplicationFlags.NON_UNIQUE if smoke or isolated else Gio.ApplicationFlags.DEFAULT_FLAGS
         super().__init__(application_id=product.application_id, flags=flags)
         self.product = product
-        self.services = services if services is not None else CodexServices(product)
         GLib.set_application_name(product.name)
         self.settings = load_settings(isolated=isolated or smoke, product=product)
+        self.services = services if services is not None else AIServices(product, self.settings)
         self.bookmarks = Bookmarks(self.settings.path.parent / 'bookmarks.json', isolated=isolated or smoke)
         codex = codex or self.settings.get("codex-path") or None
         self.codex, self.smoke = codex, smoke

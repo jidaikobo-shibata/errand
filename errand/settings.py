@@ -8,7 +8,8 @@ from pathlib import Path
 import tempfile
 
 DEFAULTS = {'font-size': 10, 'codex-path': '', 'open-errand': '', 'shortcuts': {},
-            'approval-reviewer': 'user'}
+            'approval-reviewer': 'user', 'ai-provider': 'codex',
+            'gemini-env-path': str(Path.home() / '.gemini/.env')}
 
 
 def validate(values):
@@ -20,6 +21,11 @@ def validate(values):
     for key in ('codex-path', 'open-errand'):
         if not isinstance(result[key], str):
             raise ValueError('設定の形式が正しくありません。')
+    if result['ai-provider'] not in ('codex', 'gemini'):
+        raise ValueError('AIの選択が正しくありません。')
+    env_path = result['gemini-env-path']
+    if not isinstance(env_path, str) or (env_path and not Path(env_path).is_absolute()):
+        raise ValueError('Geminiのキー設定ファイルは絶対パスで指定してください。')
     shortcuts = result['shortcuts']
     if (not isinstance(shortcuts, dict) or set(shortcuts) - set(ACTIONS)
             or any(not isinstance(value, str) for value in shortcuts.values())):

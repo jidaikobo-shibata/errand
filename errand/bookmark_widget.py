@@ -63,7 +63,7 @@ class BookmarkMenu(Gtk.MenuButton):
     def choose(self, item):
         self.menu.popdown()
         target = self.view
-        if self.prompt() or target.attachments or target.session.busy:
+        if self.prompt() or target.session.busy:
             target = target.owner.new_tab()
         target.input.get_buffer().set_text(item['text'])
         GLib.idle_add(target.focus_input)

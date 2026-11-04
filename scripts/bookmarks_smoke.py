@@ -29,9 +29,26 @@ def check():
         target.input.get_buffer().set_text('')
         target.attachments['/fixture'] = object()
         target.bookmark_button.choose(app.bookmarks.items[0])
+        assert app.window.tabs.get_n_pages() == 2
+        assert app.window.current is target
+        assert target.bookmark_button.prompt() == '報告書を確認してください。'
+        assert '/fixture' in target.attachments
+        # A draft with an attachment still opens a separate tab, preserving both.
+        target.bookmark_button.choose(app.bookmarks.items[0])
         assert app.window.tabs.get_n_pages() == 3
         assert '/fixture' in target.attachments
+        assert target.bookmark_button.prompt() == '報告書を確認してください。'
         target.attachments.clear()
+        busy_view = app.window.current
+        busy_view.input.get_buffer().set_text('')
+        busy_view.session._busy = True
+        try:
+            busy_view.bookmark_button.choose(app.bookmarks.items[0])
+            assert app.window.tabs.get_n_pages() == 4
+            assert app.window.current is not busy_view
+            assert busy_view.bookmark_button.prompt() == ''
+        finally:
+            busy_view.session._busy = False
         new = app.window.current.bookmark_button
         dialog, name, editor, save, error = new.edit(text='翻訳してください。')
         assert dialog.has_css_class('errand-window')

@@ -59,6 +59,7 @@ def build(output):
     shutil.copy2(ROOT / 'app.py', resources / 'app.py')
     shutil.copy2(ROOT / 'scripts/macos_app.py', resources / 'native_startup.py')
     shutil.copy2(ROOT / 'LICENSE', resources / 'LICENSE')
+    shutil.copy2(ROOT / 'errand/icons/Errand.icns', resources / 'Errand.icns')
     shutil.copytree(ROOT / 'errand', resources / 'errand',
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     shutil.copytree(ROOT / 'chat_foundation', resources / 'chat_foundation',
@@ -76,6 +77,7 @@ def build(output):
             'CFBundleName': 'Errand', 'CFBundleDisplayName': 'Errand',
             'CFBundleIdentifier': 'jp.jidaikobo.Errand',
             'CFBundleExecutable': 'Errand', 'CFBundlePackageType': 'APPL',
+            'CFBundleIconFile': 'Errand.icns',
             'CFBundleVersion': '1', 'CFBundleShortVersionString': '0.1.0',
             'NSHighResolutionCapable': True,
         }, stream)

@@ -8,6 +8,7 @@ a = Analysis(
     pathex=[str(root)],
     binaries=[],
     datas=[(str(root / 'LICENSE'), '.'),
+           (str(root / 'errand/icons'), 'errand/icons'),
            (str(root / 'errand/runtime_manifest.json'), 'errand')],
     hiddenimports=['gi.repository.Adw', 'gi.repository.PangoCairo'],
     hookspath=[str(root / 'scripts/hooks')],
@@ -28,6 +29,7 @@ exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='Errand',
           codesign_identity=None, entitlements_file=None)
 collection = COLLECT(exe, a.binaries, a.datas, name='Errand', strip=False, upx=False)
 app = BUNDLE(collection, name='Errand.app', bundle_identifier='jp.jidaikobo.Errand',
+             icon=str(root / 'errand/icons/Errand.icns'),
              info_plist={'CFBundleDisplayName': 'Errand', 'CFBundleShortVersionString': '0.2.0',
                          'CFBundleVersion': '2', 'NSHighResolutionCapable': True,
                          'LSMinimumSystemVersion': '15.0'})

@@ -36,6 +36,13 @@ macOS 15以降と、ご自身のCodexを利用できるChatGPTアカウントが
 python3 app.py
 ```
 
+Linuxのアプリ一覧・Dockへ名前とアイコンを登録する場合は、同じ場所で実行します。
+登録先に別の内容のファイルがある場合は、上書きせず停止します。
+
+```bash
+python3 scripts/install_desktop.py
+```
+
 Codexが見つからない場合は、実行ファイルを指定してください。
 
 ```bash

@@ -1,0 +1,14 @@
+[Icon Theme]
+Name=Errand
+Comment=Errand application icon
+Directories=512x512/apps,1024x1024/apps
+
+[512x512/apps]
+Size=512
+Type=Fixed
+Context=Applications
+
+[1024x1024/apps]
+Size=1024
+Type=Fixed
+Context=Applications

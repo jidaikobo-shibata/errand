@@ -18,6 +18,9 @@ class MacBundleTests(unittest.TestCase):
             app = builder.build(Path(temp) / 'output with spaces')
             info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
             self.assertEqual(info['CFBundleDisplayName'], 'Errand')
+            self.assertEqual(info['CFBundleIconFile'], 'Errand.icns')
+            self.assertEqual((app / 'Contents/Resources/Errand.icns').read_bytes(),
+                             (builder.ROOT / 'errand/icons/Errand.icns').read_bytes())
             executable = app / 'Contents/MacOS' / info['CFBundleExecutable']
             self.assertEqual(executable.read_bytes()[:4], b'\xcf\xfa\xed\xfe')
             subprocess.run(['bash', '-n', str(app / 'Contents/Resources/find-python')], check=True)

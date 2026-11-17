@@ -375,10 +375,13 @@ class Application(Adw.Application):
 
     def activate_window(self, _):
         if self.window is None:
+            icons = Path(__file__).resolve().parent / 'icons'
+            Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).add_search_path(str(icons))
             self.apply_font()
             Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.font_css,
                                                      Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
             self.window = Window(self, self.codex)
+            self.window.set_icon_name(self.product.application_id)
             self.apply_shortcuts()
             try:
                 self.register_shortcut(self.settings.get("open-errand"))

@@ -12,7 +12,8 @@ export default class ErrandExtension extends Extension {
         this._button = new PanelMenu.Button(0.0, 'Errand — 小さなお願い', true);
         this._button.accessible_name = 'Errand — 小さなお願いを開く';
         this._button.add_child(new St.Icon({
-            icon_name: 'system-run-symbolic',
+            gicon: new Gio.FileIcon({file: this.dir.get_child('errand')
+                .get_child('icons').get_child('baricon.svg')}),
             style_class: 'system-status-icon',
         }));
         this._button.connect('button-press-event', () => {

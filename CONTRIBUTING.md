@@ -368,3 +368,10 @@ GNOMEではGSettingsを共有し、macOSでは利用者のApplication Support内
 入力履歴の実フォーカスを必要としない検証は`prompt_history_smoke.py --logic-only`で実行できます。
 これは履歴の遷移・下書き保持の検証であり、実フォーカスやキー入力の成功を意味しません。
 フラグなしの検証は引き続きウィンドウのアクティブ状態と入力フォーカスを確認します。
+
+履歴のマウス操作とキーボード操作によるスクロールの検証も、分離したWayland環境で行います。
+押下シグナルとフォーカス移動を使う検証で、物理マウス操作の代替とはしません。
+
+```bash
+env GSETTINGS_BACKEND=memory python3 scripts/history_pointer_smoke.py
+```

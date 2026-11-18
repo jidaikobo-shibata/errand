@@ -149,7 +149,17 @@ class Conversation(Gtk.Box):
         self.scroll_controller.connect("scroll", self.user_scroll)
         self.scroll.add_controller(self.scroll_controller)
         self.history = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        self.scroll.set_child(self.history)
+        self.history_viewport = Gtk.Viewport(scroll_to_focus=True)
+        self.history_viewport.set_child(self.history)
+        self.scroll.set_child(self.history_viewport)
+        self.history_pointer = Gtk.GestureClick(button=0)
+        self.history_pointer.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.history_pointer.connect("pressed", self.history_pointer_pressed)
+        self.history.add_controller(self.history_pointer)
+        self.history_keys = Gtk.EventControllerKey()
+        self.history_keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.history_keys.connect("key-pressed", self.history_key_pressed)
+        self.add_controller(self.history_keys)
         body.append(self.scroll)
         self.backend_label = status_label(self.backend_notice)
         self.backend_label.set_visible(bool(self.backend_notice))
@@ -922,6 +932,26 @@ class Conversation(Gtk.Box):
             self._highlight_widget.set_opacity(.5 + .5 * eased)
             return True
         self._highlight_timeout = GLib.timeout_add(16, restore)
+
+    def history_pointer_pressed(self, controller, count, x, y):
+        # Run before the label/link takes focus; never claim the gesture.
+        self.history_viewport.set_scroll_to_focus(False)
+        self._follow_bottom = False
+        self._navigation_index = None
+        self.update_navigation()
+
+    def history_key_pressed(self, controller, keyval, keycode, state):
+        root = self.get_root()
+        focus = root.get_focus() if root else None
+        in_history = focus is not None and focus.is_ancestor(self.history)
+        if keyval in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab) or (in_history and keyval in (
+                Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right,
+                Gdk.KEY_Home, Gdk.KEY_End, Gdk.KEY_Page_Up, Gdk.KEY_Page_Down)):
+            self.history_viewport.set_scroll_to_focus(True)
+            self._follow_bottom = False
+            self._navigation_index = None
+            self.update_navigation()
+        return False
 
     def queue_scroll_bottom(self):
         if (self._follow_bottom or self._scroll_layout) and self._scroll_idle is None:

@@ -311,6 +311,15 @@ class Conversation(Gtk.Box):
         self.input.connect("paste-clipboard", self.paste_prompt)
         self.input.get_buffer().connect("insert-text", self.check_prompt_insertion)
         self.input.get_buffer().connect("changed", self.prompt_edited)
+        self.input.get_buffer().connect("mark-set", self.prompt_cursor_moved)
+        self.prompt_pointer = Gtk.GestureClick(button=0)
+        self.prompt_pointer.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.prompt_pointer.connect("pressed", self.prompt_edited)
+        self.input.add_controller(self.prompt_pointer)
+        self.prompt_keys = Gtk.EventControllerKey()
+        self.prompt_keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.prompt_keys.connect("key-pressed", self.prompt_key_pressed)
+        self.input.add_controller(self.prompt_keys)
         self.input.update_property([Gtk.AccessibleProperty.LABEL, Gtk.AccessibleProperty.DESCRIPTION],
                                    ["お願い", self.app.product.startup_tips[0]])
         input_focus = Gtk.EventControllerFocus()
@@ -459,6 +468,20 @@ class Conversation(Gtk.Box):
     def prompt_edited(self, *_):
         if not self._recalling_prompt:
             self._prompt_history_index = None
+
+    def prompt_cursor_moved(self, buffer, location, mark):
+        if mark in (buffer.get_insert(), buffer.get_selection_bound()):
+            self.prompt_edited()
+
+    def prompt_key_pressed(self, controller, keyval, keycode, state):
+        # End recall even if a navigation/editing key cannot move at a boundary.
+        if keyval in (Gdk.KEY_Left, Gdk.KEY_Right, Gdk.KEY_Home, Gdk.KEY_End,
+                      Gdk.KEY_Page_Up, Gdk.KEY_Page_Down, Gdk.KEY_BackSpace,
+                      Gdk.KEY_Delete, Gdk.KEY_KP_Left, Gdk.KEY_KP_Right,
+                      Gdk.KEY_KP_Home, Gdk.KEY_KP_End, Gdk.KEY_KP_Page_Up,
+                      Gdk.KEY_KP_Page_Down, Gdk.KEY_KP_Delete):
+            self.prompt_edited()
+        return False
 
     def prompt_fits(self, text):
         if len(text) <= MAX_PROMPT_CHARACTERS and text.count('\n') < MAX_PROMPT_LINES:

@@ -41,6 +41,34 @@ def verify(_):
         assert press(Gdk.KEY_Down) and text() == '次のお願い'
         assert press(Gdk.KEY_Down) and text() == ''
         assert not press(Gdk.KEY_Down)
+        # Cursor-navigation keys accept the recalled prompt, even at an edge.
+        for key in (Gdk.KEY_Left, Gdk.KEY_Right, Gdk.KEY_Home, Gdk.KEY_End):
+            buffer.set_text('')
+            assert press(Gdk.KEY_Up) and press(Gdk.KEY_Up)
+            original = text()
+            assert view._prompt_history_index == 0
+            assert not view.prompt_keys.emit('key-pressed', key, 0, Gdk.ModifierType(0))
+            assert not press(Gdk.KEY_Up)
+            assert not press(Gdk.KEY_Down)
+            assert text() == original
+            # Once accepted, GTK's normal Up movement can reach the first line.
+            view.input.emit('move-cursor', Gtk.MovementStep.DISPLAY_LINES, -1, False)
+            assert buffer.get_iter_at_mark(buffer.get_insert()).get_line() == 0
+        # A click accepts the prompt without swallowing selection gestures.
+        buffer.set_text('')
+        assert press(Gdk.KEY_Up)
+        view.prompt_pointer.emit('pressed', 1, 10., 10.)
+        assert not press(Gdk.KEY_Up) and text() == '次のお願い'
+        # Cursor/selection changes made by GTK or accessibility also accept it.
+        buffer.set_text('')
+        assert press(Gdk.KEY_Up)
+        buffer.place_cursor(buffer.get_start_iter())
+        assert not press(Gdk.KEY_Up)
+        buffer.set_text('')
+        assert press(Gdk.KEY_Up)
+        buffer.select_range(buffer.get_start_iter(), buffer.get_end_iter())
+        assert not press(Gdk.KEY_Up)
+        buffer.set_text('')
         assert press(Gdk.KEY_Up)
         buffer.insert_at_cursor('を編集', -1)
         assert not press(Gdk.KEY_Up)
